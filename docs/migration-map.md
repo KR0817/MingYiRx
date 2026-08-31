@@ -20,6 +20,7 @@ The original study is a reference case, not a dependency of this repository.
 | Threshold-sensitive network | `analysis.py` | Implemented in v0.8 without scale-free claims |
 | CNSPlots network and threshold figures | Optional `scripts/plot_networks.py` | Implemented in v0.8 from public aggregates only |
 | Cross-disease node/edge membership overlap | `analysis.py` and optional `scripts/plot_networks.py` | Implemented in v0.9 at the prespecified primary thresholds |
+| Data-to-paper evidence handoff | `docs/data-to-paper-workflow.md` and synthetic-data CI | Implemented in v0.10 without automatic claim generation |
 | Manuscript and journal packaging | Separate downstream project | Do not couple to core |
 
 This split prevents physician-specific diagnosis strings, file paths, journal formatting, and publication decisions from contaminating the reusable analysis engine.

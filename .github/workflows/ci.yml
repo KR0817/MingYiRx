@@ -1,0 +1,47 @@
+name: Synthetic-data CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile sources
+        run: python -m compileall -q src tests scripts
+
+      - name: Run synthetic tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate synthetic input
+        run: >-
+          python -m mingyirx validate
+          --config configs/example.json
+          --input data/synthetic/prescriptions.csv
+
+      - name: Run synthetic pipeline
+        run: >-
+          python -m mingyirx run
+          --config configs/example.json
+          --input data/synthetic/prescriptions.csv
+          --output "${RUNNER_TEMP}/mingyirx-demo"

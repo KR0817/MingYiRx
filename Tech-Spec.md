@@ -189,3 +189,5 @@ All outputs are aggregate. Empty analyses still emit headers and an explanatory 
 - A privacy test scans every generated artifact.
 - A CLI smoke test runs from configuration to outputs.
 - `python -m unittest discover -s tests -v` is the baseline check.
+- Repository CI compiles the Python sources, runs the full synthetic test suite, and executes `validate` and `run` against committed synthetic inputs only. Optional plotting and every real/private path remain outside CI.
+- `docs/data-to-paper-workflow.md` is the handoff contract linking each manuscript claim class to aggregate outputs, implementation sources, validation evidence, and prohibited interpretations.

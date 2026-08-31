@@ -87,3 +87,12 @@
 - The real membership union contained 45 nodes and 244 edges. Existing 15 CSV hashes remained unchanged when the two new tables were added; two consecutive v0.9 real runs produced identical hashes for all 18 public artifacts, and the privacy scan reported zero issues.
 - Fifteen synthetic tests and compilation passed. The CNSPlots comparison figure uses an exact-pattern bubble matrix plus node/edge Jaccard dumbbells; two complete renders produced identical hashes for six PNG/SVG artifacts, and all three SVG files parsed successfully. Standard Matplotlib SVG was used because `mutool` is unavailable.
 - Cross-group membership remains exploratory and threshold-dependent. Single-group membership is not disease specificity, and edge overlap does not establish a traditional compatibility rule, syndrome, mechanism, effectiveness, or recommendation. Adjusted inference still requires a covariate contract.
+
+## 2026-09-01 — Version 0.10.0 data-to-paper handoff and synthetic CI verified
+
+- `docs/data-to-paper-workflow.md` now maps each manuscript purpose to named aggregate tables, implementation sources, supported wording, prohibited escalation, figure provenance, and a pre-publication gate. It is a handoff contract rather than automatic manuscript generation.
+- The workflow distinguishes public CSV/report artifacts from the restricted real-data `run_manifest.json`, whose absolute local paths keep it ignored and unsuitable for submission or public release.
+- `.github/workflows/ci.yml` uses read-only repository permissions and runs compilation, all tests, validation, and an end-to-end pipeline only against committed synthetic inputs on Python 3.11 and 3.14. Optional plotting, real paths, credentials, and clinical data are excluded.
+- Local Python 3.14 and 3.12 runs each passed all fifteen tests and the synthetic CLI smoke test with zero privacy issues. Python 3.11 is not installed locally and remains to be confirmed by the first GitHub-hosted CI run; no Git remote is currently configured.
+- A v0.10 real run retained identical hashes for every scientific artifact from v0.9, remained `PASS_WITH_WARNINGS`, and had zero privacy-scan issues. This version changes the evidence handoff and repository verification layer, not scientific estimands or results.
+- Journal-specific tables, figure captions, and an official Material Passport remain downstream work. Covariate adjustment still requires a frozen covariate contract, and multi-physician or multi-center transportability requires external data.
