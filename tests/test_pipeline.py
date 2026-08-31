@@ -92,7 +92,7 @@ class PipelineTests(unittest.TestCase):
             manifest = run_pipeline(CONFIG, INPUT, output)
             self.assertEqual(manifest["gate"], "PASS_WITH_WARNINGS")
             self.assertEqual(manifest["privacy_scan"]["issues"], [])
-            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 13)
+            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 16)
             self.assertEqual(len(manifest["inputs"]), 1)
             self.assertEqual(manifest["input_reconciliation"]["raw_rows"], 60)
             self.assertEqual(manifest["input_reconciliation"]["analysis_rows"], 60)
@@ -101,6 +101,9 @@ class PipelineTests(unittest.TestCase):
                 "cohort_summary.csv",
                 "first_prescription_item_prevalence.csv",
                 "frequent_item_combinations.csv",
+                "network_nodes.csv",
+                "network_edges.csv",
+                "network_threshold_sensitivity.csv",
                 "longitudinal_summary.csv",
                 "transition_mode_summary.csv",
                 "cross_group_similarity.csv",
@@ -147,6 +150,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(ra_2018["late_patients"], "")
             report_text = (output / "report.md").read_text(encoding="utf-8")
             self.assertNotIn("early=1", report_text)
+            self.assertIn("Common2 \\| Fuling", report_text)
 
             with (output / "item_normalization_audit.csv").open(
                 "r", encoding="utf-8", newline=""
@@ -179,8 +183,50 @@ class PipelineTests(unittest.TestCase):
             )
             self.assertEqual(ra_pair["stable_core_combination"], "False")
 
+            with (output / "network_threshold_sensitivity.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                network_rows = list(csv.DictReader(handle))
+            self.assertEqual(len(network_rows), 27)
+            primary_ra = next(
+                row
+                for row in network_rows
+                if row["group"] == "ra" and row["primary_setting"] == "True"
+            )
+            self.assertEqual(primary_ra["node_prevalence_threshold"], "0.5")
+            self.assertEqual(primary_ra["edge_cosine_threshold"], "0.5")
+            self.assertEqual(primary_ra["node_retention_vs_primary"], "1")
+            self.assertEqual(primary_ra["node_jaccard_vs_primary"], "1")
+            self.assertEqual(primary_ra["edge_jaccard_vs_primary"], "")
+
+            with (output / "network_nodes.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                network_nodes = list(csv.DictReader(handle))
+            self.assertTrue(network_nodes)
+            self.assertTrue(
+                all(
+                    int(row["exposed_patients"]) >= 2
+                    and float(row["bootstrap_core_selection_probability"]) >= 0.8
+                    for row in network_nodes
+                )
+            )
+
+            with (output / "network_edges.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                network_edges = list(csv.DictReader(handle))
+            self.assertTrue(network_edges)
+            self.assertTrue(
+                all(
+                    int(row["cooccurrence_patients"]) >= 2
+                    and float(row["cosine_similarity"]) >= 0.5
+                    for row in network_edges
+                )
+            )
+
             repeated_manifest = run_pipeline(CONFIG, INPUT, output)
-            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 13)
+            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 16)
             self.assertEqual(repeated_manifest["artifacts"], manifest["artifacts"])
 
     def test_exact_bootstrap_core_selection_probability(self) -> None:
@@ -200,6 +246,15 @@ class PipelineTests(unittest.TestCase):
         config["combination_analysis"]["sizes"] = [1, 2]
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "invalid_combinations.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(path)
+
+    def test_network_threshold_grid_must_include_primary_setting(self) -> None:
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))
+        config["network_analysis"]["edge_cosine_thresholds"] = [0.3, 0.7]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "invalid_network.json"
             path.write_text(json.dumps(config), encoding="utf-8")
             with self.assertRaises(ConfigError):
                 load_config(path)

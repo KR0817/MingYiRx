@@ -43,6 +43,49 @@ TABLE_FIELDS = {
         "bootstrap_core_selection_probability",
         "stable_core_combination",
     ],
+    "network_nodes": [
+        "group",
+        "group_label",
+        "patients",
+        "node_prevalence_threshold",
+        "edge_cosine_threshold",
+        "item_name",
+        "exposed_patients",
+        "prevalence",
+        "bootstrap_core_selection_probability",
+        "degree",
+        "weighted_degree",
+    ],
+    "network_edges": [
+        "group",
+        "group_label",
+        "patients",
+        "node_prevalence_threshold",
+        "edge_cosine_threshold",
+        "item_1",
+        "item_2",
+        "cooccurrence_patients",
+        "support",
+        "cosine_similarity",
+        "lift",
+    ],
+    "network_threshold_sensitivity": [
+        "group",
+        "group_label",
+        "patients",
+        "node_prevalence_threshold",
+        "edge_cosine_threshold",
+        "stable_nodes",
+        "edges",
+        "density",
+        "connected_components",
+        "largest_component_fraction",
+        "node_retention_vs_primary",
+        "node_jaccard_vs_primary",
+        "edge_retention_vs_primary",
+        "edge_jaccard_vs_primary",
+        "primary_setting",
+    ],
     "longitudinal_summary": [
         "group",
         "repeat_patients",
@@ -229,7 +272,7 @@ def _format_value(value: object) -> str:
         return "NA"
     if isinstance(value, float):
         return f"{value:.3f}"
-    return str(value)
+    return str(value).replace("|", "\\|").replace("\n", "<br>")
 
 
 def _markdown_table(rows: list[dict[str, object]], columns: list[str]) -> str:
@@ -272,6 +315,21 @@ def _write_report(
     combination_table = _markdown_table(
         _top_combination_rows(analysis.tables["frequent_item_combinations"]),
         TABLE_FIELDS["frequent_item_combinations"],
+    )
+    network_table = _markdown_table(
+        [
+            row
+            for row in analysis.tables["network_threshold_sensitivity"]
+            if row["primary_setting"]
+        ],
+        [
+            "group",
+            "stable_nodes",
+            "edges",
+            "density",
+            "connected_components",
+            "largest_component_fraction",
+        ],
     )
     similarity_table = _markdown_table(
         analysis.tables["cross_group_similarity"], TABLE_FIELDS["cross_group_similarity"]
@@ -329,6 +387,12 @@ def _write_report(
 The table shows at most three combinations per group and size, including the prespecified stability classification. The complete privacy-screened aggregate table is available in `frequent_item_combinations.csv`.
 
 {combination_table}
+
+## Privacy-safe recurrent-item networks
+
+Primary networks use stable recurrent items at the configured core-prevalence threshold and privacy-screened edges at the configured cosine threshold. Complete node, edge, and threshold-grid membership results are provided in the three network CSV files.
+
+{network_table}
 
 ## Patient-linked adjacent-prescription change
 
@@ -474,6 +538,19 @@ def run_pipeline(
                 "sizes": list(context.config.combination_analysis.sizes),
                 "stability_probability": (
                     context.config.combination_analysis.stability_probability
+                ),
+            },
+            "network_analysis": {
+                "enabled": context.config.network_analysis.enabled,
+                "primary_cosine": context.config.network_analysis.primary_cosine,
+                "node_prevalence_thresholds": list(
+                    context.config.network_analysis.node_prevalence_thresholds
+                ),
+                "edge_cosine_thresholds": list(
+                    context.config.network_analysis.edge_cosine_thresholds
+                ),
+                "stability_probability": (
+                    context.config.network_analysis.stability_probability
                 ),
             },
         },

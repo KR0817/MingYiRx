@@ -125,6 +125,16 @@ For each configured group, count each unordered two- or three-item combination a
 
 Lift is a descriptive marginal-frequency calibration, not synergy, compatibility, mechanism, or benefit. Stability is the exact probability that a same-size nonparametric patient bootstrap sample reaches `core_prevalence`. For a candidate observed in `k` of `n` patients, this is the binomial survival probability with `X ~ Binomial(n, k/n)` and threshold `ceil(n × core_prevalence)`. `combination_analysis.stability_probability` classifies stable combinations without finite-replicate Monte Carlo noise.
 
+### Privacy-safe recurrent-item networks
+
+For each group, nodes are items from one first eligible prescription per patient. At a node-prevalence threshold `t`, a node must have at least `min_public_n` exposed patients, prevalence at least `t`, and exact bootstrap selection probability at least `network_analysis.stability_probability`. The primary node threshold is `core_prevalence`.
+
+For every unordered eligible node pair, the edge support is the number of first-prescription patients exposed to both items. Public edges require at least `min_public_n` patients and cosine similarity at least `network_analysis.primary_cosine`, where `cosine = coexposed / sqrt(item_1_exposed × item_2_exposed)`. Edge lift is descriptive only.
+
+The prespecified sensitivity grid crosses `network_analysis.node_prevalence_thresholds` with `network_analysis.edge_cosine_thresholds`. Every row reports node and edge counts, density, connected components, largest-component fraction, and node/edge membership retention and Jaccard relative to the primary setting. This directly audits threshold dependence rather than inferring robustness from similar-looking layouts.
+
+The core package does not estimate communities or fit degree-distribution models. Optional figures use the public aggregate node/edge tables, a fixed random seed for deterministic group-specific layouts, and editable SVG output. Cross-group comparison uses the same node/edge encodings and quantitative membership summaries, not node position. Neither layout, centrality, connectedness, nor lift establishes a traditional compatibility rule, syndrome, mechanism, efficacy, or scale-free structure.
+
 ## Privacy
 
 - Default `min_public_n=10`; configuration below 10 is rejected unless `synthetic_mode=true`.
@@ -156,6 +166,9 @@ python -m mingyirx run --config CONFIG --input CSV [--input CSV ...] --output DI
 - `item_normalization_audit.csv`
 - `dose_conflict_audit.csv`
 - `frequent_item_combinations.csv`
+- `network_nodes.csv`
+- `network_edges.csv`
+- `network_threshold_sensitivity.csv`
 - `report.md`
 - `run_manifest.json`
 

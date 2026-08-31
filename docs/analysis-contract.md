@@ -49,3 +49,7 @@ Dictionary coverage measures how much of the eligible source vocabulary was expl
 ## Combination interpretation
 
 Frequent pairs and triplets are patient-level first-prescription co-occurrences. Bootstrap stability means that a prevalence threshold is likely to be reselected under resampling of the same source cohort. Lift above one means co-occurrence exceeds the product of recorded marginal frequencies; it does not establish pharmacologic interaction, traditional compatibility, therapeutic necessity, mechanism, or effectiveness. Combination rows are descriptive candidates for replication and human review.
+
+## Network interpretation
+
+Network nodes are internally stable recurrent items and edges are privacy-screened first-prescription co-occurrences passing a prespecified cosine threshold. Threshold-grid membership Jaccard describes how much the published node or edge set changes when analysis thresholds change. It is not external validation. Degree and weighted degree are descriptive prominence measures only; components are not automatically syndromes or therapeutic modules. No scale-free, pharmacologic, causal, efficacy, or prescription-recommendation conclusion is permitted.

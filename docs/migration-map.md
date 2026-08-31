@@ -17,8 +17,8 @@ The original study is a reference case, not a dependency of this repository.
 | Patient bootstrap, empirical null, BH-FDR | `analysis.py` | Implemented in v0.3 |
 | Exact-match and minimum-five-control sensitivity | `analysis.py` | Implemented in v0.4 |
 | Adjusted GLM | Future `inference.py` | Requires a covariate contract |
-| Threshold-sensitive network and plotting templates | Future optional module | Phase 3 |
-| CNSPlots figures | Future optional plotting package | Phase 3 |
+| Threshold-sensitive network | `analysis.py` | Implemented in v0.8 without scale-free claims |
+| CNSPlots network and threshold figures | Optional `scripts/plot_networks.py` | Implemented in v0.8 from public aggregates only |
 | Manuscript and journal packaging | Separate downstream project | Do not couple to core |
 
 This split prevents physician-specific diagnosis strings, file paths, journal formatting, and publication decisions from contaminating the reusable analysis engine.

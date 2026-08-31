@@ -30,6 +30,13 @@
     "sizes": [2, 3],
     "stability_probability": 0.8
   },
+  "network_analysis": {
+    "enabled": true,
+    "primary_cosine": 0.5,
+    "node_prevalence_thresholds": [0.25, 0.5, 0.75],
+    "edge_cosine_thresholds": [0.3, 0.5, 0.7],
+    "stability_probability": 0.8
+  },
   "early_end_year": 2019,
   "temporal_cutpoints": [2018, 2019, 2020, 2021],
   "core_prevalence": 0.5,

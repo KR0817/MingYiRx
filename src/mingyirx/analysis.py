@@ -499,6 +499,279 @@ def _frequent_combination_rows(
     return rows, metadata, tuple(warnings)
 
 
+def _network_components(
+    nodes: set[str], edges: set[tuple[str, str]]
+) -> list[set[str]]:
+    adjacency = {node: set() for node in nodes}
+    for left, right in edges:
+        adjacency[left].add(right)
+        adjacency[right].add(left)
+
+    components: list[set[str]] = []
+    remaining = set(nodes)
+    while remaining:
+        seed = min(remaining)
+        component: set[str] = set()
+        pending = [seed]
+        while pending:
+            node = pending.pop()
+            if node in component:
+                continue
+            component.add(node)
+            pending.extend(adjacency[node] - component)
+        remaining -= component
+        components.append(component)
+    return components
+
+
+def _membership_comparison(
+    current: set[object], primary: set[object]
+) -> tuple[float | None, float | None]:
+    if not primary:
+        return None, None
+    intersection = len(current & primary)
+    union = len(current | primary)
+    return intersection / len(primary), intersection / union
+
+
+def _network_setting(
+    patient_count: int,
+    item_counts: Counter[str],
+    pair_counts: Counter[tuple[str, str]],
+    node_threshold: float,
+    cosine_threshold: float,
+    min_public_n: int,
+    stability_probability: float,
+) -> tuple[dict[str, float], dict[tuple[str, str], dict[str, float | int]]]:
+    minimum_node_count = math.ceil(patient_count * node_threshold)
+    nodes: dict[str, float] = {}
+    for item, exposed_patients in item_counts.items():
+        prevalence = exposed_patients / patient_count
+        if exposed_patients < min_public_n or prevalence < node_threshold:
+            continue
+        selection_probability = _binomial_survival_probability(
+            patient_count, prevalence, minimum_node_count
+        )
+        if selection_probability >= stability_probability:
+            nodes[item] = selection_probability
+
+    edges: dict[tuple[str, str], dict[str, float | int]] = {}
+    for (left, right), cooccurrence_patients in pair_counts.items():
+        if (
+            left not in nodes
+            or right not in nodes
+            or cooccurrence_patients < min_public_n
+        ):
+            continue
+        cosine = cooccurrence_patients / math.sqrt(
+            item_counts[left] * item_counts[right]
+        )
+        if cosine < cosine_threshold:
+            continue
+        support = cooccurrence_patients / patient_count
+        expected_support = (
+            item_counts[left] / patient_count
+        ) * (item_counts[right] / patient_count)
+        edges[(left, right)] = {
+            "cooccurrence_patients": cooccurrence_patients,
+            "support": support,
+            "cosine_similarity": cosine,
+            "lift": support / expected_support,
+        }
+    return nodes, edges
+
+
+def _network_rows(
+    first_visits: dict[str, PrescriptionVisit], config: AnalysisConfig
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    dict[str, object],
+    tuple[str, ...],
+]:
+    network_config = config.network_analysis
+    metadata: dict[str, object] = {
+        "enabled": network_config.enabled,
+        "primary_node_prevalence": config.core_prevalence,
+        "primary_edge_cosine": network_config.primary_cosine,
+        "stability_probability_threshold": network_config.stability_probability,
+        "node_prevalence_thresholds": list(
+            network_config.node_prevalence_thresholds
+        ),
+        "edge_cosine_thresholds": list(network_config.edge_cosine_thresholds),
+        "primary_nodes": 0,
+        "primary_edges": 0,
+        "sensitivity_rows": 0,
+    }
+    if not network_config.enabled:
+        return [], [], [], metadata, ()
+
+    group_order = {
+        group.name: index for index, group in enumerate(config.groups)
+    }
+    group_labels = {group.name: group.label for group in config.groups}
+    visits_by_group: dict[str, list[PrescriptionVisit]] = {
+        group.name: [] for group in config.groups
+    }
+    for visit in first_visits.values():
+        visits_by_group[visit.group].append(visit)
+
+    node_rows: list[dict[str, object]] = []
+    edge_rows: list[dict[str, object]] = []
+    sensitivity_rows: list[dict[str, object]] = []
+    warnings: list[str] = []
+
+    for group in group_order:
+        visits = visits_by_group[group]
+        patient_count = len(visits)
+        if patient_count < config.min_public_n:
+            warnings.append(
+                f"Network analysis for {group} was suppressed because the public threshold was not met"
+            )
+            continue
+
+        item_counts: Counter[str] = Counter()
+        for visit in visits:
+            item_counts.update(visit.items)
+        public_items = {
+            item for item, count in item_counts.items() if count >= config.min_public_n
+        }
+        pair_counts: Counter[tuple[str, str]] = Counter()
+        for visit in visits:
+            pair_counts.update(
+                itertools.combinations(sorted(visit.items & public_items), 2)
+            )
+
+        settings: dict[
+            tuple[float, float],
+            tuple[dict[str, float], dict[tuple[str, str], dict[str, float | int]]],
+        ] = {}
+        for node_threshold in network_config.node_prevalence_thresholds:
+            for cosine_threshold in network_config.edge_cosine_thresholds:
+                settings[(node_threshold, cosine_threshold)] = _network_setting(
+                    patient_count,
+                    item_counts,
+                    pair_counts,
+                    node_threshold,
+                    cosine_threshold,
+                    config.min_public_n,
+                    network_config.stability_probability,
+                )
+
+        primary_nodes, primary_edges = settings[
+            (config.core_prevalence, network_config.primary_cosine)
+        ]
+        primary_node_set = set(primary_nodes)
+        primary_edge_set = set(primary_edges)
+
+        degrees = {node: 0 for node in primary_nodes}
+        weighted_degrees = {node: 0.0 for node in primary_nodes}
+        for (left, right), attributes in primary_edges.items():
+            cosine = float(attributes["cosine_similarity"])
+            degrees[left] += 1
+            degrees[right] += 1
+            weighted_degrees[left] += cosine
+            weighted_degrees[right] += cosine
+
+        for item, selection_probability in primary_nodes.items():
+            node_rows.append(
+                {
+                    "group": group,
+                    "group_label": group_labels[group],
+                    "patients": patient_count,
+                    "node_prevalence_threshold": config.core_prevalence,
+                    "edge_cosine_threshold": network_config.primary_cosine,
+                    "item_name": item,
+                    "exposed_patients": item_counts[item],
+                    "prevalence": item_counts[item] / patient_count,
+                    "bootstrap_core_selection_probability": selection_probability,
+                    "degree": degrees[item],
+                    "weighted_degree": weighted_degrees[item],
+                }
+            )
+
+        for (left, right), attributes in primary_edges.items():
+            edge_rows.append(
+                {
+                    "group": group,
+                    "group_label": group_labels[group],
+                    "patients": patient_count,
+                    "node_prevalence_threshold": config.core_prevalence,
+                    "edge_cosine_threshold": network_config.primary_cosine,
+                    "item_1": left,
+                    "item_2": right,
+                    **attributes,
+                }
+            )
+
+        for (node_threshold, cosine_threshold), (nodes, edges) in settings.items():
+            node_set = set(nodes)
+            edge_set = set(edges)
+            components = _network_components(node_set, edge_set)
+            node_retention, node_jaccard = _membership_comparison(
+                node_set, primary_node_set
+            )
+            edge_retention, edge_jaccard = _membership_comparison(
+                edge_set, primary_edge_set
+            )
+            possible_edges = len(node_set) * (len(node_set) - 1) / 2
+            sensitivity_rows.append(
+                {
+                    "group": group,
+                    "group_label": group_labels[group],
+                    "patients": patient_count,
+                    "node_prevalence_threshold": node_threshold,
+                    "edge_cosine_threshold": cosine_threshold,
+                    "stable_nodes": len(node_set),
+                    "edges": len(edge_set),
+                    "density": len(edge_set) / possible_edges if possible_edges else 0.0,
+                    "connected_components": len(components),
+                    "largest_component_fraction": (
+                        max(map(len, components)) / len(node_set)
+                        if components
+                        else 0.0
+                    ),
+                    "node_retention_vs_primary": node_retention,
+                    "node_jaccard_vs_primary": node_jaccard,
+                    "edge_retention_vs_primary": edge_retention,
+                    "edge_jaccard_vs_primary": edge_jaccard,
+                    "primary_setting": (
+                        node_threshold == config.core_prevalence
+                        and cosine_threshold == network_config.primary_cosine
+                    ),
+                }
+            )
+
+    node_rows.sort(
+        key=lambda row: (
+            group_order[str(row["group"])],
+            -float(row["prevalence"]),
+            str(row["item_name"]),
+        )
+    )
+    edge_rows.sort(
+        key=lambda row: (
+            group_order[str(row["group"])],
+            -float(row["cosine_similarity"]),
+            -float(row["support"]),
+            str(row["item_1"]),
+            str(row["item_2"]),
+        )
+    )
+    sensitivity_rows.sort(
+        key=lambda row: (
+            group_order[str(row["group"])],
+            float(row["node_prevalence_threshold"]),
+            float(row["edge_cosine_threshold"]),
+        )
+    )
+    metadata["primary_nodes"] = len(node_rows)
+    metadata["primary_edges"] = len(edge_rows)
+    metadata["sensitivity_rows"] = len(sensitivity_rows)
+    return node_rows, edge_rows, sensitivity_rows, metadata, tuple(warnings)
+
+
 def _prevalence(
     first_visits: dict[str, PrescriptionVisit], group_names: tuple[str, ...]
 ) -> tuple[dict[str, Counter[str]], dict[str, dict[str, float]], dict[str, int]]:
@@ -1282,12 +1555,22 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
     combination_rows, combination_metadata, combination_warnings = (
         _frequent_combination_rows(first_visits, config)
     )
+    (
+        network_node_rows,
+        network_edge_rows,
+        network_sensitivity_rows,
+        network_metadata,
+        network_warnings,
+    ) = _network_rows(first_visits, config)
 
     return AnalysisResult(
         tables={
             "cohort_summary": _cohort_summary(visits_by_patient, group_names),
             "first_prescription_item_prevalence": first_rows,
             "frequent_item_combinations": combination_rows,
+            "network_nodes": network_node_rows,
+            "network_edges": network_edge_rows,
+            "network_threshold_sensitivity": network_sensitivity_rows,
             "longitudinal_summary": longitudinal_rows,
             "transition_mode_summary": mode_rows,
             "cross_group_similarity": _cross_group_rows(
@@ -1323,8 +1606,14 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
             },
             "matched_reference": matched_metadata,
             "combination_analysis": combination_metadata,
+            "network_analysis": network_metadata,
         },
         warnings=tuple(
-            [*temporal_warnings, *matched_warnings, *combination_warnings]
+            [
+                *temporal_warnings,
+                *matched_warnings,
+                *combination_warnings,
+                *network_warnings,
+            ]
         ),
     )

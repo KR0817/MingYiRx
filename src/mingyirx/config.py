@@ -65,6 +65,15 @@ class CombinationAnalysisConfig:
 
 
 @dataclass(frozen=True)
+class NetworkAnalysisConfig:
+    enabled: bool
+    primary_cosine: float
+    node_prevalence_thresholds: tuple[float, ...]
+    edge_cosine_thresholds: tuple[float, ...]
+    stability_probability: float
+
+
+@dataclass(frozen=True)
 class AnalysisConfig:
     project_id: str
     dataset_id: str
@@ -86,6 +95,7 @@ class AnalysisConfig:
     item_normalization: ItemNormalizationConfig
     matched_reference: MatchedReferenceConfig
     combination_analysis: CombinationAnalysisConfig
+    network_analysis: NetworkAnalysisConfig
 
 
 def _required_string(data: dict[str, Any], key: str) -> str:
@@ -114,6 +124,21 @@ def _column_selector(value: Any, key: str) -> ColumnSelector:
     if isinstance(value, str) and value.strip():
         return value.strip()
     raise ConfigError(f"{key} must be a nonblank header string or zero-based integer position")
+
+
+def _probability_list(value: Any, key: str) -> tuple[float, ...]:
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in value)
+    ):
+        raise ConfigError(f"{key} must be a non-empty numeric JSON list")
+    values = tuple(float(item) for item in value)
+    if values != tuple(sorted(set(values))):
+        raise ConfigError(f"{key} must contain unique values in ascending order")
+    if any(not 0 < item <= 1 for item in values):
+        raise ConfigError(f"{key} values must be in (0, 1]")
+    return values
 
 
 def _normalize_dictionary_name(value: object) -> str:
@@ -398,6 +423,46 @@ def load_config(path: Path) -> AnalysisConfig:
     if not 0 < core_prevalence <= 1:
         raise ConfigError("core_prevalence must be in (0, 1]")
 
+    network_raw = raw.get("network_analysis", {})
+    if not isinstance(network_raw, dict):
+        raise ConfigError("network_analysis must be a JSON object")
+    primary_cosine = float(network_raw.get("primary_cosine", 0.50))
+    if not 0 < primary_cosine <= 1:
+        raise ConfigError("network_analysis.primary_cosine must be in (0, 1]")
+    node_prevalence_thresholds = _probability_list(
+        network_raw.get("node_prevalence_thresholds", [core_prevalence]),
+        "network_analysis.node_prevalence_thresholds",
+    )
+    edge_cosine_thresholds = _probability_list(
+        network_raw.get("edge_cosine_thresholds", [primary_cosine]),
+        "network_analysis.edge_cosine_thresholds",
+    )
+    if core_prevalence not in node_prevalence_thresholds:
+        raise ConfigError(
+            "network_analysis.node_prevalence_thresholds must include core_prevalence"
+        )
+    if primary_cosine not in edge_cosine_thresholds:
+        raise ConfigError(
+            "network_analysis.edge_cosine_thresholds must include primary_cosine"
+        )
+    network_stability_probability = float(
+        network_raw.get(
+            "stability_probability",
+            combination_analysis.stability_probability,
+        )
+    )
+    if not 0 < network_stability_probability <= 1:
+        raise ConfigError(
+            "network_analysis.stability_probability must be in (0, 1]"
+        )
+    network_analysis = NetworkAnalysisConfig(
+        enabled=bool(network_raw.get("enabled", False)),
+        primary_cosine=primary_cosine,
+        node_prevalence_thresholds=node_prevalence_thresholds,
+        edge_cosine_thresholds=edge_cosine_thresholds,
+        stability_probability=network_stability_probability,
+    )
+
     return AnalysisConfig(
         project_id=_required_string(raw, "project_id"),
         dataset_id=_required_string(raw, "dataset_id"),
@@ -423,4 +488,5 @@ def load_config(path: Path) -> AnalysisConfig:
         item_normalization=item_normalization,
         matched_reference=matched_reference,
         combination_analysis=combination_analysis,
+        network_analysis=network_analysis,
     )
