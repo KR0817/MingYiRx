@@ -1,0 +1,519 @@
+from __future__ import annotations
+
+import csv
+import json
+import math
+import tempfile
+import unittest
+from datetime import date
+from pathlib import Path
+
+from mingyirx.analysis import (
+    PrescriptionVisit,
+    _MatchedTransition,
+    _matched_control_distribution,
+    _matched_reference_rows,
+    _matched_sensitivity_rows,
+    transition_metrics,
+)
+from mingyirx.config import ConfigError, load_config
+from mingyirx.io import InputError, read_sources
+from mingyirx.pipeline import run_pipeline, validate_pipeline
+from mingyirx.privacy import FORBIDDEN_PUBLIC_HEADERS, scan_public_outputs
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIG = ROOT / "configs" / "example.json"
+INPUT = ROOT / "data" / "synthetic" / "prescriptions.csv"
+
+
+class PipelineTests(unittest.TestCase):
+    @staticmethod
+    def _visit(
+        patient_id: str,
+        visit_id: str,
+        visit_date: date,
+        items: set[str],
+        physician_id: str = "D1",
+    ) -> PrescriptionVisit:
+        doses = {item: (1.0, "g") for item in items}
+        return PrescriptionVisit(
+            patient_id=patient_id,
+            group="ra",
+            visit_id=visit_id,
+            visit_date=visit_date,
+            physician_id=physician_id,
+            items=frozenset(items),
+            doses=doses,
+            dose_resolved=True,
+        )
+
+    def test_validation_and_exclusive_groups(self) -> None:
+        context = validate_pipeline(CONFIG, INPUT)
+        self.assertEqual(context.read_result.row_count, 60)
+        self.assertEqual(context.cohort_result.total_patients, 14)
+        self.assertEqual(len(context.cohort_result.patient_groups), 12)
+        self.assertEqual(context.cohort_result.overlap_patients, 1)
+        self.assertEqual(context.cohort_result.unmatched_patients, 1)
+        self.assertEqual(context.cohort_result.group_counts, {"ra": 4, "sjd": 4, "as": 4})
+
+    def test_transition_metrics(self) -> None:
+        context = validate_pipeline(CONFIG, INPUT)
+        r1 = context.visit_result.visits_by_patient["R1"]
+        r1_metric = transition_metrics(r1[0], r1[1])
+        self.assertTrue(math.isclose(r1_metric.jaccard, 0.5))
+        self.assertTrue(math.isclose(r1_metric.modification_burden, 0.5))
+        self.assertEqual(r1_metric.mode, "composition_only")
+
+        r3 = context.visit_result.visits_by_patient["R3"]
+        r3_metric = transition_metrics(r3[0], r3[1])
+        self.assertTrue(math.isclose(r3_metric.jaccard, 1.0))
+        self.assertTrue(math.isclose(r3_metric.modification_burden, 0.5))
+        self.assertEqual(r3_metric.mode, "dose_only")
+
+        unresolved = PrescriptionVisit(
+            patient_id="P",
+            group="ra",
+            visit_id="V",
+            visit_date=date(2020, 1, 1),
+            physician_id="D1",
+            items=frozenset({"A"}),
+            doses={"A": None},
+            dose_resolved=False,
+        )
+        unresolved_metric = transition_metrics(unresolved, unresolved)
+        self.assertEqual(unresolved_metric.mode, "dose_unresolved")
+        self.assertIsNone(unresolved_metric.modification_burden)
+
+    def test_end_to_end_outputs_are_aggregate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory)
+            manifest = run_pipeline(CONFIG, INPUT, output)
+            self.assertEqual(manifest["gate"], "PASS_WITH_WARNINGS")
+            self.assertEqual(manifest["privacy_scan"]["issues"], [])
+            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 12)
+            self.assertEqual(len(manifest["inputs"]), 1)
+            self.assertEqual(manifest["input_reconciliation"]["raw_rows"], 60)
+            self.assertEqual(manifest["input_reconciliation"]["analysis_rows"], 60)
+
+            expected = {
+                "cohort_summary.csv",
+                "first_prescription_item_prevalence.csv",
+                "longitudinal_summary.csv",
+                "transition_mode_summary.csv",
+                "cross_group_similarity.csv",
+                "temporal_stability.csv",
+                "temporal_cutpoint_sensitivity.csv",
+                "matched_reference_summary.csv",
+                "matched_reference_sensitivity.csv",
+                "item_normalization_audit.csv",
+                "dose_conflict_audit.csv",
+                "report.md",
+                "run_manifest.json",
+            }
+            self.assertEqual({path.name for path in output.iterdir()}, expected)
+            self.assertEqual(scan_public_outputs(output).issues, ())
+
+            for path in output.glob("*.csv"):
+                with path.open("r", encoding="utf-8", newline="") as handle:
+                    headers = {header.casefold() for header in next(csv.reader(handle))}
+                self.assertFalse(headers & FORBIDDEN_PUBLIC_HEADERS)
+
+            all_text = "\n".join(path.read_text(encoding="utf-8") for path in output.iterdir())
+            self.assertNotIn("R1,RV01", all_text)
+            self.assertNotIn("S1,SV01", all_text)
+
+            with (output / "cross_group_similarity.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                rows = list(csv.DictReader(handle))
+            ra_sjd = next(row for row in rows if row["group_left"] == "ra" and row["group_right"] == "sjd")
+            self.assertEqual(int(ra_sjd["common_public_items"]), 2)
+            self.assertTrue(math.isclose(float(ra_sjd["weighted_jaccard"]), 6 / 7))
+
+            with (output / "temporal_cutpoint_sensitivity.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                temporal_rows = list(csv.DictReader(handle))
+            self.assertEqual(len(temporal_rows), 12)
+            ra_2018 = next(
+                row
+                for row in temporal_rows
+                if row["group"] == "ra" and row["early_end_year"] == "2018"
+            )
+            self.assertEqual(ra_2018["early_patients"], "")
+            self.assertEqual(ra_2018["late_patients"], "")
+            report_text = (output / "report.md").read_text(encoding="utf-8")
+            self.assertNotIn("early=1", report_text)
+
+            with (output / "item_normalization_audit.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                normalization_row = next(csv.DictReader(handle))
+            self.assertEqual(
+                normalization_row["dictionary_version"], "synthetic-reviewed-v1"
+            )
+            self.assertEqual(normalization_row["unmapped_source_items"], "0")
+            self.assertEqual(normalization_row["changed_item_lines"], "0")
+
+            repeated_manifest = run_pipeline(CONFIG, INPUT, output)
+            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 12)
+            self.assertEqual(repeated_manifest["artifacts"], manifest["artifacts"])
+
+    def test_real_configuration_rejects_low_public_threshold(self) -> None:
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))
+        config["synthetic_mode"] = False
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "unsafe.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(path)
+
+    def test_temporal_cutpoints_must_include_primary_year(self) -> None:
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))
+        config["temporal_cutpoints"] = [2018, 2020]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "invalid_cutpoints.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(path)
+
+    def test_privacy_scan_does_not_treat_decimal_precision_as_an_identifier(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory)
+            (output / "aggregate.csv").write_text(
+                "metric,value\nprevalence,0.060561299852289516\n", encoding="utf-8"
+            )
+            self.assertEqual(scan_public_outputs(output).issues, ())
+
+    def test_positional_multi_file_mapping_preserves_within_file_multiplicity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            first = temporary_root / "first.csv"
+            second = temporary_root / "second.csv"
+            header = ["patient", "visit", "when", "diagnosis", "item", "dose", "unit", "visit"]
+            overlapping = ["P1", "V1", "2019-01-01", "RA", "A", "10", "g", "duplicate header"]
+            with first.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(header)
+                writer.writerow(overlapping)
+                writer.writerow(overlapping)
+                writer.writerow(["P2", "V2", "2020-01-01", "SjD", "B", "8", "g", "x"])
+            with second.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(header)
+                writer.writerow(overlapping)
+                writer.writerow(["P3", "V3", "2021-01-01", "AS", "C", "6", "g", "x"])
+
+            config_data = json.loads(CONFIG.read_text(encoding="utf-8"))
+            config_data["encoding"] = "utf-8"
+            config_data["item_normalization"] = {
+                "version": "source-string-test-v1",
+                "dictionary_path": None,
+            }
+            config_data["cross_file_overlap_policy"] = "max_multiplicity"
+            config_data["columns"] = {
+                "patient_id": 0,
+                "visit_id": 1,
+                "visit_date": 2,
+                "diagnosis_text": 3,
+                "item_name": 4,
+                "dose": 5,
+                "unit": 6,
+            }
+            config_path = temporary_root / "config.json"
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+            config = load_config(config_path)
+
+            result = read_sources((first, second), config)
+            self.assertEqual(result.row_count, 5)
+            self.assertEqual(result.analysis_row_count, 4)
+            self.assertEqual(result.cross_file_overlap_rows_detected, 1)
+            self.assertEqual(result.cross_file_overlap_rows_removed, 1)
+            self.assertEqual(result.duplicate_line_count, 1)
+            self.assertEqual(len(result.source_files), 2)
+            self.assertEqual(result.source_files[0].duplicate_header_names, ("visit",))
+
+            config_data["columns"]["visit_id"] = "visit"
+            ambiguous_path = temporary_root / "ambiguous.json"
+            ambiguous_path.write_text(json.dumps(config_data), encoding="utf-8")
+            with self.assertRaises(InputError):
+                read_sources((first, second), load_config(ambiguous_path))
+
+            config_data["columns"]["visit_id"] = 1
+            config_data["expected_input_sha256"] = {
+                "first.csv": "0" * 64,
+                "second.csv": "0" * 64,
+            }
+            mismatched_path = temporary_root / "mismatched-hash.json"
+            mismatched_path.write_text(json.dumps(config_data), encoding="utf-8")
+            with self.assertRaises(InputError):
+                read_sources((first, second), load_config(mismatched_path))
+
+    def test_visit_group_and_item_eligibility_are_applied_after_cohort_assignment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            source = temporary_root / "eligibility.csv"
+            with source.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(
+                    [
+                        "patient_id",
+                        "visit_id",
+                        "visit_date",
+                        "diagnosis_text",
+                        "item_name",
+                        "dose",
+                        "unit",
+                        "physician_id",
+                    ]
+                )
+                writer.writerows(
+                    [
+                        ["P1", "V1", "2019-01-01", "RA", "A", "10", "g", "D1"],
+                        ["P1", "V2", "2020-01-01", "Other", "A", "10", "g", "D1"],
+                        ["P1", "V3", "2021-01-01", "RA", "Tablet", "1", "tablet", "D1"],
+                        ["P2", "V1", "2019-01-01", "SjD", "B", "8", "g", "D1"],
+                        ["P3", "V1", "2019-01-01", "AS", "C", "6", "g", "D1"],
+                    ]
+                )
+
+            config_data = json.loads(CONFIG.read_text(encoding="utf-8"))
+            config_data["encoding"] = "utf-8"
+            config_data["item_normalization"] = {
+                "version": "source-string-test-v1",
+                "dictionary_path": None,
+            }
+            config_data["require_visit_group_match"] = True
+            config_data["item_eligibility"] = {
+                "allowed_units": ["g"],
+                "excluded_exact_names": [],
+                "excluded_name_patterns": [],
+            }
+            config_path = temporary_root / "eligibility.json"
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+            context = validate_pipeline(config_path, source)
+            self.assertEqual(context.cohort_result.total_patients, 3)
+            self.assertEqual(len(context.cohort_result.patient_groups), 3)
+            self.assertEqual(context.visit_result.group_mismatch_visit_count, 1)
+            self.assertEqual(context.visit_result.ineligible_item_line_count, 1)
+            self.assertEqual(context.visit_result.empty_eligible_visit_count, 1)
+            self.assertEqual(len(context.visit_result.visits_by_patient["P1"]), 1)
+
+    def test_item_dictionary_mapping_can_expose_a_post_mapping_dose_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            dictionary = temporary_root / "dictionary.csv"
+            with dictionary.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["source_item_name", "canonical_item_name"])
+                writer.writerow(["Fu Ling", "茯苓"])
+                writer.writerow(["茯苓", "茯苓"])
+
+            source = temporary_root / "source.csv"
+            with source.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(
+                    [
+                        "patient_id",
+                        "visit_id",
+                        "visit_date",
+                        "diagnosis_text",
+                        "item_name",
+                        "dose",
+                        "unit",
+                        "physician_id",
+                    ]
+                )
+                writer.writerows(
+                    [
+                        ["P1", "V1", "2019-01-01", "RA", "Fu Ling", "10", "g", "D1"],
+                        ["P1", "V1", "2019-01-01", "RA", "茯苓", "12", "g", "D1"],
+                        ["P4", "V1", "2019-01-01", "RA", "Fu Ling", "10", "g", "D1"],
+                        ["P4", "V1", "2019-01-01", "RA", "茯苓", "12", "g", "D1"],
+                        ["P2", "V1", "2019-01-01", "SjD", "Fu Ling", "10", "g", "D1"],
+                        ["P2", "V1", "2019-01-01", "SjD", "茯苓", "12", "g", "D1"],
+                        ["P3", "V1", "2019-01-01", "AS", "C", "6", "g", "D1"],
+                    ]
+                )
+
+            config_data = json.loads(CONFIG.read_text(encoding="utf-8"))
+            config_data["encoding"] = "utf-8"
+            config_data["item_normalization"] = {
+                "version": "test-reviewed-v1",
+                "dictionary_path": "dictionary.csv",
+            }
+            config_path = temporary_root / "config.json"
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+            context = validate_pipeline(config_path, source)
+            audit = context.visit_result
+            self.assertEqual(audit.dictionary_matched_item_line_count, 6)
+            self.assertEqual(audit.changed_item_line_count, 3)
+            self.assertEqual(audit.distinct_source_item_count, 3)
+            self.assertEqual(audit.dictionary_matched_source_item_count, 2)
+            self.assertEqual(audit.canonical_item_count, 2)
+            self.assertEqual(audit.canonical_collision_visit_item_count, 3)
+            self.assertEqual(audit.dose_conflict_item_count, 3)
+            self.assertEqual(
+                audit.dose_conflict_patients_by_group, {"ra": 2, "sjd": 1}
+            )
+            mapped_visit = audit.visits_by_patient["P1"][0]
+            self.assertEqual(mapped_visit.items, frozenset({"茯苓"}))
+            self.assertFalse(mapped_visit.dose_resolved)
+
+            output = temporary_root / "output"
+            manifest = run_pipeline(config_path, source, output)
+            self.assertIn(
+                "Dose conflicts were found; see the aggregate dose-conflict audit",
+                manifest["warnings"],
+            )
+            with (output / "dose_conflict_audit.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                rows = list(csv.DictReader(handle))
+            ra_row = next(row for row in rows if row["group"] == "ra")
+            self.assertEqual(ra_row["patients_with_conflict"], "")
+            self.assertEqual(ra_row["visit_item_conflicts"], "")
+            all_row = next(row for row in rows if row["group"] == "all")
+            self.assertEqual(all_row["patients_with_conflict"], "")
+            self.assertEqual(all_row["visit_item_conflicts"], "")
+
+            config_data["item_normalization"]["expected_sha256"] = "0" * 64
+            mismatched_path = temporary_root / "mismatched_dictionary.json"
+            mismatched_path.write_text(json.dumps(config_data), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(mismatched_path)
+
+    def test_matched_reference_excludes_self_and_uses_nearest_size_fallback(self) -> None:
+        config = load_config(CONFIG)
+        exact_visits = {
+            "P1": (
+                self._visit("P1", "P1V1", date(2020, 1, 1), {"A"}),
+                self._visit("P1", "P1V2", date(2020, 2, 1), {"A"}),
+            ),
+            "P2": (
+                self._visit("P2", "P2V1", date(2020, 1, 1), {"B"}),
+                self._visit("P2", "P2V2", date(2020, 2, 1), {"B"}),
+            ),
+        }
+        rows, sensitivity_rows, metadata, warnings = _matched_reference_rows(
+            exact_visits, config
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["patients"], 2)
+        self.assertEqual(rows[0]["matched_transitions"], 2)
+        self.assertEqual(rows[0]["unmatched_transitions"], 0)
+        self.assertTrue(math.isclose(rows[0]["observed_patient_median_jaccard"], 1.0))
+        self.assertTrue(
+            math.isclose(rows[0]["matched_between_patient_median_jaccard"], 0.0)
+        )
+        self.assertTrue(math.isclose(rows[0]["within_minus_between_median"], 1.0))
+        self.assertTrue(
+            math.isclose(rows[0]["exact_year_stage_size_match_pct"], 100.0)
+        )
+        self.assertEqual(metadata["matched_patients"], 2)
+        self.assertEqual(metadata["sensitivity_seed"], 20260824)
+        exact_sensitivity = next(
+            row
+            for row in sensitivity_rows
+            if row["analysis"] == "exact_year_stage_size_only"
+            and row["group"] == "ra"
+        )
+        self.assertEqual(exact_sensitivity["patients"], 2)
+        self.assertEqual(exact_sensitivity["transitions"], 2)
+        self.assertTrue(
+            math.isclose(exact_sensitivity["within_minus_between_median"], 1.0)
+        )
+        self.assertEqual(
+            (rows, sensitivity_rows, metadata, warnings),
+            _matched_reference_rows(exact_visits, config),
+        )
+
+        fallback_visits = {
+            "P1": (
+                self._visit("P1", "P1V1", date(2020, 1, 1), {"A"}),
+                self._visit("P1", "P1V2", date(2020, 2, 1), {"A", "C"}),
+            ),
+            "P2": (
+                self._visit("P2", "P2V1", date(2020, 1, 1), {"B"}),
+                self._visit("P2", "P2V2", date(2020, 2, 1), {"B"}),
+            ),
+        }
+        fallback_rows, fallback_sensitivity, _, _ = _matched_reference_rows(
+            fallback_visits, config
+        )
+        self.assertTrue(
+            math.isclose(fallback_rows[0]["exact_year_stage_size_match_pct"], 0.0)
+        )
+        self.assertTrue(math.isclose(fallback_rows[0]["matchable_transition_pct"], 100.0))
+        self.assertFalse(
+            any(
+                row["analysis"] == "exact_year_stage_size_only"
+                and row["group"] == "ra"
+                for row in fallback_sensitivity
+            )
+        )
+
+        missing_physician_visits = {
+            patient: tuple(
+                self._visit(
+                    visit.patient_id,
+                    visit.visit_id,
+                    visit.visit_date,
+                    set(visit.items),
+                    physician_id="",
+                )
+                for visit in visits
+            )
+            for patient, visits in exact_visits.items()
+        }
+        with self.assertRaises(InputError):
+            _matched_reference_rows(missing_physician_visits, config)
+
+    def test_matched_reference_weights_control_patients_before_visits(self) -> None:
+        previous = self._visit("INDEX", "V1", date(2020, 1, 1), {"A"})
+        candidates = [
+            self._visit("CONTROL1", "C1V1", date(2020, 2, 1), {"A"}),
+            self._visit("CONTROL1", "C1V2", date(2020, 3, 1), {"A"}),
+            self._visit("CONTROL1", "C1V3", date(2020, 4, 1), {"A"}),
+            self._visit("CONTROL2", "C2V1", date(2020, 2, 1), {"B"}),
+        ]
+        matched, control_values = _matched_control_distribution(previous, candidates)
+        self.assertEqual(len(control_values), 2)
+        self.assertTrue(math.isclose(matched, 0.5))
+
+    def test_matched_sensitivity_requires_five_control_patients(self) -> None:
+        config = load_config(CONFIG)
+
+        def transition(control_patient_n: int) -> _MatchedTransition:
+            return _MatchedTransition(
+                observed_jaccard=0.8,
+                matched_between_jaccard=0.3,
+                control_patient_n=control_patient_n,
+                match_level="nearest_size_same_year_stage",
+                control_values_by_patient=((0.3,),),
+            )
+
+        transitions_by_group = {
+            "ra": {
+                "P1": [transition(4), transition(5)],
+                "P2": [transition(5)],
+            },
+            "sjd": {},
+            "as": {},
+        }
+        rows, _ = _matched_sensitivity_rows(transitions_by_group, config)
+        minimum_five = next(
+            row
+            for row in rows
+            if row["analysis"] == "minimum_5_control_patients"
+            and row["group"] == "ra"
+        )
+        self.assertEqual(minimum_five["patients"], 2)
+        self.assertEqual(minimum_five["transitions"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

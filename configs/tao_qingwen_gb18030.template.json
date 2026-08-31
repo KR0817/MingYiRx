@@ -1,0 +1,82 @@
+{
+  "project_id": "TQW_RHEUM_RX_CROSS_DISEASE_2026",
+  "dataset_id": "TQW_RX_B133B194_CAEEAA0C",
+  "cohort_version": "v2.0.0-strict-three-disease-recorded-label-groups",
+  "encoding": "gb18030",
+  "synthetic_mode": false,
+  "min_public_n": 10,
+  "exclusive_groups": true,
+  "cross_file_overlap_policy": "max_multiplicity",
+  "require_visit_group_match": true,
+  "early_end_year": 2019,
+  "temporal_cutpoints": [2018, 2019, 2020, 2021],
+  "core_prevalence": 0.2,
+  "date_formats": [
+    "%Y/%m/%d %H:%M:%S",
+    "%Y/%m/%d"
+  ],
+  "expected_input_sha256": {
+    "TQW-干燥1.csv": "B133B1946EEEE875F4FDA9814A8B7370280980C8D15D8C88223F8F97EEB86FBC",
+    "TQW-干燥2.csv": "CAEEAA0C446571661772DAE8A203553F101BBC1FECC674E7BA61369514717026"
+  },
+  "columns": {
+    "patient_id": 3,
+    "visit_id": 4,
+    "visit_date": 4,
+    "diagnosis_text": 8,
+    "item_name": 11,
+    "dose": 15,
+    "unit": 16
+  },
+  "item_eligibility": {
+    "allowed_units": ["g"],
+    "excluded_exact_names": ["帕夫林"],
+    "excluded_name_patterns": [
+      "肠溶片|缓释片|分散片|胶囊|颗粒|丸|口服液|注射|滴眼液|乳膏|软膏|贴|喷雾|溶液|混悬|糖浆|栓|吸入|钙尔奇|D600"
+    ]
+  },
+  "item_normalization": {
+    "version": "source-string-v1",
+    "dictionary_path": null,
+    "expected_sha256": null
+  },
+  "matched_reference": {
+    "enabled": true,
+    "assume_single_physician": true,
+    "random_seed": 20260822,
+    "bootstrap_replicates": 5000,
+    "null_replicates": 2000
+  },
+  "groups": [
+    {
+      "name": "ra_strict",
+      "label": "Rheumatoid arthritis",
+      "include_patterns": ["类风湿(?:性)?关节炎|rheumatoid\\s*arthritis"],
+      "exclude_patterns": [
+        "干燥综合(?:征|症)|舍格伦|斯耶格伦|sj[oö]gren|\\bp?ss\\b",
+        "强直性脊柱炎|ankylosing\\s*spondylitis",
+        "系统性红斑狼疮|红斑狼疮|systemic\\s*lupus|\\bSLE\\b|系统性硬化(?:症)?|硬皮病|systemic\\s*sclerosis|scleroderma|多发性肌炎|皮肌炎|抗合成酶综合征|免疫介导坏死性肌病|polymyositis|dermatomyositis|antisynthetase|混合性?结缔组织病|未分化结缔组织病|结缔组织病|mixed\\s*connective\\s*tissue|undifferentiated\\s*connective\\s*tissue|\\bMCTD\\b|\\bUCTD\\b|\\bCTD\\b|抗磷脂综合征|antiphospholipid\\s*syndrome|\\bAPS\\b|重叠综合征|overlap\\s*syndrome"
+      ]
+    },
+    {
+      "name": "sjd_strict",
+      "label": "Sjögren disease",
+      "include_patterns": ["干燥综合(?:征|症)|舍格伦|斯耶格伦|sj[oö]gren|\\bp?ss\\b"],
+      "exclude_patterns": [
+        "类风湿(?:性)?关节炎|rheumatoid\\s*arthritis",
+        "强直性脊柱炎|ankylosing\\s*spondylitis",
+        "系统性红斑狼疮|红斑狼疮|systemic\\s*lupus|\\bSLE\\b|系统性硬化(?:症)?|硬皮病|systemic\\s*sclerosis|scleroderma|多发性肌炎|皮肌炎|抗合成酶综合征|免疫介导坏死性肌病|polymyositis|dermatomyositis|antisynthetase|混合性?结缔组织病|未分化结缔组织病|结缔组织病|mixed\\s*connective\\s*tissue|undifferentiated\\s*connective\\s*tissue|\\bMCTD\\b|\\bUCTD\\b|\\bCTD\\b|抗磷脂综合征|antiphospholipid\\s*syndrome|\\bAPS\\b|重叠综合征|overlap\\s*syndrome"
+      ]
+    },
+    {
+      "name": "as_strict",
+      "label": "Ankylosing spondylitis",
+      "include_patterns": ["强直性脊柱炎|ankylosing\\s*spondylitis"],
+      "exclude_patterns": [
+        "类风湿(?:性)?关节炎|rheumatoid\\s*arthritis",
+        "干燥综合(?:征|症)|舍格伦|斯耶格伦|sj[oö]gren|\\bp?ss\\b",
+        "系统性红斑狼疮|红斑狼疮|systemic\\s*lupus|\\bSLE\\b|系统性硬化(?:症)?|硬皮病|systemic\\s*sclerosis|scleroderma|多发性肌炎|皮肌炎|抗合成酶综合征|免疫介导坏死性肌病|polymyositis|dermatomyositis|antisynthetase|混合性?结缔组织病|未分化结缔组织病|结缔组织病|mixed\\s*connective\\s*tissue|undifferentiated\\s*connective\\s*tissue|\\bMCTD\\b|\\bUCTD\\b|\\bCTD\\b|抗磷脂综合征|antiphospholipid\\s*syndrome|\\bAPS\\b|重叠综合征|overlap\\s*syndrome"
+      ]
+    }
+  ]
+}
