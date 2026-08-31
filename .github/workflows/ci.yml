@@ -45,3 +45,9 @@ jobs:
           --config configs/example.json
           --input data/synthetic/prescriptions.csv
           --output "${RUNNER_TEMP}/mingyirx-demo"
+
+      - name: Build synthetic clinical review dashboard
+        run: >-
+          python -m mingyirx dashboard
+          --input-dir "${RUNNER_TEMP}/mingyirx-demo"
+          --output "${RUNNER_TEMP}/mingyirx-clinical-review.html"

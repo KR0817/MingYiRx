@@ -1028,6 +1028,72 @@ def _longitudinal_rows(
     return longitudinal_rows, mode_rows
 
 
+def _longitudinal_item_change_rows(
+    visits_by_patient: dict[str, tuple[PrescriptionVisit, ...]],
+    group_names: tuple[str, ...],
+    min_public_n: int,
+) -> list[dict[str, object]]:
+    patient_changes: dict[str, list[dict[str, dict[str, float]]]] = {
+        group: [] for group in group_names
+    }
+    for visits in visits_by_patient.values():
+        if len(visits) < 2:
+            continue
+        transition_n = len(visits) - 1
+        added_counts: Counter[str] = Counter()
+        removed_counts: Counter[str] = Counter()
+        for previous, current in itertools.pairwise(visits):
+            added_counts.update(current.items - previous.items)
+            removed_counts.update(previous.items - current.items)
+        patient_changes[visits[0].group].append(
+            {
+                "addition": {
+                    item: count / transition_n for item, count in added_counts.items()
+                },
+                "removal": {
+                    item: count / transition_n for item, count in removed_counts.items()
+                },
+            }
+        )
+
+    rows: list[dict[str, object]] = []
+    group_order = {group: index for index, group in enumerate(group_names)}
+    direction_order = {"addition": 0, "removal": 1}
+    for group in group_names:
+        summaries = patient_changes[group]
+        repeat_patients = len(summaries)
+        for change_type in direction_order:
+            items = set().union(
+                *(summary[change_type].keys() for summary in summaries)
+            )
+            for item in items:
+                rates = [summary[change_type].get(item, 0.0) for summary in summaries]
+                patients_with_change = sum(rate > 0 for rate in rates)
+                if patients_with_change < min_public_n:
+                    continue
+                rows.append(
+                    {
+                        "group": group,
+                        "item_name": item,
+                        "change_type": change_type,
+                        "repeat_patients": repeat_patients,
+                        "patients_with_change": patients_with_change,
+                        "patient_prevalence": patients_with_change / repeat_patients,
+                        "mean_patient_transition_fraction": statistics.fmean(rates),
+                    }
+                )
+    rows.sort(
+        key=lambda row: (
+            group_order[str(row["group"])],
+            direction_order[str(row["change_type"])],
+            -float(row["patient_prevalence"]),
+            -float(row["mean_patient_transition_fraction"]),
+            str(row["item_name"]),
+        )
+    )
+    return rows
+
+
 def _cross_group_rows(
     group_names: tuple[str, ...],
     counts: dict[str, Counter[str]],
@@ -1653,6 +1719,9 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
         counts, prevalence, denominators, config.min_public_n
     )
     longitudinal_rows, mode_rows = _longitudinal_rows(visits_by_patient, group_names)
+    longitudinal_item_change_rows = _longitudinal_item_change_rows(
+        visits_by_patient, group_names, config.min_public_n
+    )
     temporal_cutpoint_rows, temporal_warnings = _temporal_rows(
         first_visits, config, config.temporal_cutpoints
     )
@@ -1692,6 +1761,7 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
             "network_membership": network_membership_rows,
             "longitudinal_summary": longitudinal_rows,
             "transition_mode_summary": mode_rows,
+            "longitudinal_item_change_tendency": longitudinal_item_change_rows,
             "cross_group_similarity": _cross_group_rows(
                 group_names, counts, prevalence, config.min_public_n
             ),

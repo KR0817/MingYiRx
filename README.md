@@ -7,6 +7,7 @@ MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方�
 - 使用共享布局和预设阈值网格审计的稳定高频药味共现网络；
 - 主网络中三病共享、两病共享和单病种药味/药对的成员模式及两两Jaccard；
 - 同一患者相邻复诊处方的延续与加减；
+- 患者等权的逐药加药与减药倾向；
 - 加药、减药、记录剂量改变和处方修改负担；
 - 不同疾病组的处方分布重叠；
 - 患者内相邻处方与匹配的不同患者处方背景之间的差值；
@@ -14,7 +15,7 @@ MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方�
 
 它不分析疗效、安全性、处方合理性、机制或诊断性能。
 
-当前版本为 `0.10.0`：除多文件GB18030入口和资格门控外，已支持同医师不同患者匹配参照、患者级bootstrap区间、匹配与时间切点敏感性分析、版本化药名字典、剂量冲突汇总审计、患者等权的稳定药对/三药组合、阈值敏感共现网络、主网络节点/药对的跨病种成员重叠，以及数据—论文—代码证据映射和合成数据CI。随机分析使用预先定义的固定种子；组合与网络节点稳定性使用精确二项概率，不引入Monte Carlo误差。
+当前版本为 `0.11.0`：除多文件GB18030入口和资格门控外，已支持同医师不同患者匹配参照、患者级bootstrap区间、匹配与时间切点敏感性分析、版本化药名字典、剂量冲突汇总审计、患者等权的稳定药对/三药组合和逐药加减倾向、阈值敏感共现网络、主网络节点/药对的跨病种成员重叠、数据—论文—代码证据映射，以及只读取公开汇总结果的本地交互式临床复盘页面。随机分析使用预先定义的固定种子；组合与网络节点稳定性使用精确二项概率，不引入Monte Carlo误差。
 
 ## 为什么不是直接整理原论文脚本
 
@@ -34,6 +35,9 @@ python -m mingyirx run `
   --config configs\example.json `
   --input data\synthetic\prescriptions.csv `
   --output outputs\demo
+python -m mingyirx dashboard `
+  --input-dir outputs\demo `
+  --output outputs\demo\clinical_review.html
 ```
 
 也可以直接运行封装好的演示脚本：
@@ -80,7 +84,7 @@ dose, unit, physician_id
 
 ## 输出
 
-运行后产生十七张汇总表、一个Markdown报告和一个运行清单：
+运行后产生十八张汇总表、一个Markdown报告和一个运行清单：
 
 - `cohort_summary.csv`
 - `first_prescription_item_prevalence.csv`
@@ -91,6 +95,7 @@ dose, unit, physician_id
 - `network_group_overlap.csv`
 - `network_membership.csv`
 - `longitudinal_summary.csv`
+- `longitudinal_item_change_tendency.csv`
 - `transition_mode_summary.csv`
 - `cross_group_similarity.csv`
 - `temporal_stability.csv`
@@ -103,6 +108,17 @@ dose, unit, physician_id
 - `run_manifest.json`
 
 `outputs/`、`work/` 和真实数据目录默认被Git忽略。
+
+## 本地临床复盘界面
+
+`dashboard` 命令把已经通过隐私扫描的公开汇总CSV打包为一个自包含HTML，不启动服务器，也不读取原始处方、患者键或 `run_manifest.json`。用浏览器打开生成的 `clinical_review.html` 后，可以：
+
+- 切换记录标签病种，查看首次处方常用药味；
+- 搜索药味或组合，并筛选药对、三药组合和显示数量；
+- 对照首诊处方骨架，查看复诊中常见的逐药加药与减药方向；
+- 展开计算依据，核对患者数、相邻复诊数、公开阈值后的分母和解释限制。
+
+页面用于医师回顾自己的历史群体处方模式，不接收患者级输入，也不生成个体处方、剂量、禁忌或疗效建议。某一药味的“常加”或“常减”只表示在本数据集复诊患者中的记录频率，不能直接用于当前患者。
 
 网络图是可选下游步骤，只读取已通过隐私扫描的汇总CSV。当前机器使用独立的CNSPlots环境：
 
@@ -121,11 +137,12 @@ dose, unit, physician_id
 1. 队列流程、缺失和记录质量。
 2. 患者等权的首次处方药味结构。
 3. 患者内相邻处方变化。
-4. 同医师不同患者背景参考及患者级bootstrap区间。
-5. 患者不重叠的主时期比较和预设切点压力测试。
-6. 用预设支持度和精确重抽样概率筛选稳定药对/三药组合。
-7. 用预设节点/cosine阈值网格审计网络成员稳定性，并保持探索性解释。
-8. 在同一主阈值下比较节点与药对成员重叠，区分共享药味与重新组合形成的病种差异。
+4. 患者等权的逐药加药/减药倾向。
+5. 同医师不同患者背景参考及患者级bootstrap区间。
+6. 患者不重叠的主时期比较和预设切点压力测试。
+7. 用预设支持度和精确重抽样概率筛选稳定药对/三药组合。
+8. 用预设节点/cosine阈值网格审计网络成员稳定性，并保持探索性解释。
+9. 在同一主阈值下比较节点与药对成员重叠，区分共享药味与重新组合形成的病种差异。
 
 具体边界见 [analysis-contract.md](docs/analysis-contract.md)，从公开汇总结果到论文段落/图表/代码证据的对应关系见 [data-to-paper-workflow.md](docs/data-to-paper-workflow.md)，原陶庆文研究到通用模块的映射见 [migration-map.md](docs/migration-map.md)。
 

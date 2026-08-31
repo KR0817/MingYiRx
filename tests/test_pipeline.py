@@ -12,12 +12,14 @@ from mingyirx.analysis import (
     PrescriptionVisit,
     _MatchedTransition,
     _binomial_survival_probability,
+    _longitudinal_item_change_rows,
     _matched_control_distribution,
     _matched_reference_rows,
     _matched_sensitivity_rows,
     transition_metrics,
 )
 from mingyirx.config import ConfigError, load_config
+from mingyirx.dashboard import build_dashboard
 from mingyirx.io import InputError, read_sources
 from mingyirx.pipeline import run_pipeline, validate_pipeline
 from mingyirx.privacy import FORBIDDEN_PUBLIC_HEADERS, scan_public_outputs
@@ -92,7 +94,7 @@ class PipelineTests(unittest.TestCase):
             manifest = run_pipeline(CONFIG, INPUT, output)
             self.assertEqual(manifest["gate"], "PASS_WITH_WARNINGS")
             self.assertEqual(manifest["privacy_scan"]["issues"], [])
-            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 18)
+            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 19)
             self.assertEqual(len(manifest["inputs"]), 1)
             self.assertEqual(manifest["input_reconciliation"]["raw_rows"], 60)
             self.assertEqual(manifest["input_reconciliation"]["analysis_rows"], 60)
@@ -108,6 +110,7 @@ class PipelineTests(unittest.TestCase):
                 "network_membership.csv",
                 "longitudinal_summary.csv",
                 "transition_mode_summary.csv",
+                "longitudinal_item_change_tendency.csv",
                 "cross_group_similarity.csv",
                 "temporal_stability.csv",
                 "temporal_cutpoint_sensitivity.csv",
@@ -262,8 +265,53 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(shared_edge["membership_class"], "multi_group")
 
             repeated_manifest = run_pipeline(CONFIG, INPUT, output)
-            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 18)
+            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 19)
             self.assertEqual(repeated_manifest["artifacts"], manifest["artifacts"])
+
+            dashboard = output / "dashboard.html"
+            dashboard_summary = build_dashboard(
+                output, dashboard, "Synthetic </script><script>alert(1)</script>"
+            )
+            dashboard_text = dashboard.read_text(encoding="utf-8")
+            self.assertEqual(dashboard_summary["gate"], "PASS")
+            self.assertFalse(dashboard_summary["patient_level_data_included"])
+            self.assertIn("门诊处方复盘", dashboard_text)
+            self.assertIn("&lt;/script&gt;", dashboard_text)
+            self.assertNotIn("</script><script>alert(1)</script>", dashboard_text)
+            self.assertNotIn("patient_id", dashboard_text)
+            first_dashboard = dashboard.read_bytes()
+            build_dashboard(
+                output, dashboard, "Synthetic </script><script>alert(1)</script>"
+            )
+            self.assertEqual(dashboard.read_bytes(), first_dashboard)
+
+    def test_item_change_tendency_is_patient_equal_and_direction_suppressed(self) -> None:
+        visits = {
+            "P1": (
+                self._visit("P1", "P1V1", date(2020, 1, 1), {"A"}),
+                self._visit("P1", "P1V2", date(2020, 2, 1), {"A", "B"}),
+            ),
+            "P2": (
+                self._visit("P2", "P2V1", date(2020, 1, 1), {"A"}),
+                self._visit("P2", "P2V2", date(2020, 2, 1), {"A", "B"}),
+            ),
+            "P3": (
+                self._visit("P3", "P3V1", date(2020, 1, 1), {"A", "B"}),
+                self._visit("P3", "P3V2", date(2020, 2, 1), {"A"}),
+            ),
+        }
+        rows = _longitudinal_item_change_rows(visits, ("ra",), 2)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["item_name"], "B")
+        self.assertEqual(rows[0]["change_type"], "addition")
+        self.assertEqual(rows[0]["repeat_patients"], 3)
+        self.assertEqual(rows[0]["patients_with_change"], 2)
+        self.assertTrue(math.isclose(float(rows[0]["patient_prevalence"]), 2 / 3))
+        self.assertTrue(
+            math.isclose(
+                float(rows[0]["mean_patient_transition_fraction"]), 2 / 3
+            )
+        )
 
     def test_exact_bootstrap_core_selection_probability(self) -> None:
         self.assertTrue(

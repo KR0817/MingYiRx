@@ -84,6 +84,12 @@ For consecutive prescriptions `A` and `B`:
 
 Compute transition metrics, then patient medians/proportions, then group medians/means so patients with many visits do not dominate.
 
+### Item-level addition and removal tendencies
+
+For every repeat patient and item, count the adjacent transitions in which the item is newly added or removed. Divide each count by that patient's total eligible transitions. For each recorded-label group and direction, publish an item row only when at least `min_public_n` patients experienced that direction.
+
+Each row reports the number and fraction of repeat patients with at least one qualifying change, plus the mean patient-level transition fraction across all repeat patients. Added and removed directions are separate rows; an absent direction means not reportable under the privacy threshold, not zero occurrence. The estimand describes historical recorded modification, not an instruction to add or remove an item for a current patient.
+
 ### Matched different-patient reference
 
 For every adjacent eligible transition, compare the previous prescription with candidate current prescriptions from other patients. Control visits must be second or later eligible visits and share clinician, recorded-label group, and calendar year. Matching proceeds through a fixed hierarchy:
@@ -141,6 +147,10 @@ Every public node or edge also receives an exact configured-group membership pat
 
 The core package does not estimate communities or fit degree-distribution models. Optional figures use the public aggregate node/edge tables, a fixed random seed for deterministic group-specific layouts, and editable SVG output. Cross-group comparison uses the same node/edge encodings and quantitative membership summaries, not node position. Neither layout, centrality, connectedness, nor lift establishes a traditional compatibility rule, syndrome, mechanism, efficacy, or scale-free structure.
 
+## Local clinical review dashboard
+
+`python -m mingyirx dashboard --input-dir OUTPUTS --output dashboard.html` reads public aggregate CSV files only and writes one self-contained HTML file. It does not open a server, accept raw uploads, read `run_manifest.json`, or expose patient-level records. The interface supports recorded-label group selection, item search, pair/triplet filtering, and historical addition/removal review. Every screen preserves the non-recommendation notice and gives the user access to denominators, calculation definitions, and known limitations.
+
 ## Privacy
 
 - Default `min_public_n=10`; configuration below 10 is rejected unless `synthetic_mode=true`.
@@ -164,6 +174,7 @@ python -m mingyirx run --config CONFIG --input CSV [--input CSV ...] --output DI
 - `first_prescription_item_prevalence.csv`
 - `longitudinal_summary.csv`
 - `transition_mode_summary.csv`
+- `longitudinal_item_change_tendency.csv`
 - `cross_group_similarity.csv`
 - `temporal_stability.csv`
 - `temporal_cutpoint_sensitivity.csv`

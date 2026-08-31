@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .config import ConfigError
+from .dashboard import DashboardError, build_dashboard
 from .io import InputError
 from .pipeline import run_pipeline, validate_pipeline
 
@@ -28,6 +29,13 @@ def _parser() -> argparse.ArgumentParser:
         "--input", type=Path, action="append", required=True, help="Repeat for each source CSV"
     )
     run.add_argument("--output", type=Path, required=True)
+
+    dashboard = subparsers.add_parser(
+        "dashboard", help="Build a self-contained dashboard from public aggregate outputs"
+    )
+    dashboard.add_argument("--input-dir", type=Path, required=True)
+    dashboard.add_argument("--output", type=Path, required=True)
+    dashboard.add_argument("--title", default="MingYiRx 门诊处方复盘")
     return parser
 
 
@@ -49,11 +57,13 @@ def main() -> int:
                 "group_counts": context.cohort_result.group_counts,
                 "warnings": list(context.warnings),
             }
-        else:
+        elif args.command == "run":
             summary = run_pipeline(args.config, args.input, args.output)
+        else:
+            summary = build_dashboard(args.input_dir, args.output, args.title)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
-    except (ConfigError, InputError, json.JSONDecodeError) as error:
+    except (ConfigError, DashboardError, InputError, json.JSONDecodeError) as error:
         print(json.dumps({"gate": "BLOCK", "error": str(error)}, ensure_ascii=False, indent=2))
         return 2
 

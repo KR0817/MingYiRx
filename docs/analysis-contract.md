@@ -38,6 +38,14 @@ The different-patient reference asks whether ordered prescriptions from one pati
 
 The exact-match-only and minimum-five-control restrictions are robustness checks on match quality and control-pool sparsity. Agreement in direction strengthens confidence that the descriptive contrast is not created solely by fallback matching or very small control pools; it does not convert the contrast into a causal effect.
 
+## Item-level change interpretation
+
+An addition or removal row means that at least the configured public minimum number of repeat patients experienced that recorded change. The patient-level transition fraction is calculated before group averaging so patients with many visits do not dominate. The two directions are disclosed independently; a missing direction is below the reporting rule or absent and must not be treated as zero. These historical tendencies do not determine whether an item should be added, removed, continued, or dosed for a current patient.
+
+## Clinical review interface
+
+The interactive dashboard is a local cohort-review surface over public aggregate results. It does not accept an individual patient's symptoms, examination, laboratory data, comorbidities, allergies, current medicines, pregnancy status, or treatment response. Therefore it cannot generate a clinically complete or patient-specific prescription. Users must be able to inspect the cohort denominator, calculation basis, threshold, and uncertainty boundary without relying primarily on the visual ranking.
+
 ## Temporal-cutpoint interpretation
 
 Agreement across prespecified cut points supports the direction of an internal calendar-period stability finding without treating one arbitrary year as decisive. It remains an internal data-drift stress test within the supplied record system, not external validation. Differences may reflect case mix, documentation, item availability, nomenclature, or practice changes and must not be labelled clinical deterioration or improvement.

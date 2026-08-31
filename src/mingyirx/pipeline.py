@@ -128,6 +128,15 @@ TABLE_FIELDS = {
         "dose_resolved_transitions",
         "mean_patient_proportion",
     ],
+    "longitudinal_item_change_tendency": [
+        "group",
+        "item_name",
+        "change_type",
+        "repeat_patients",
+        "patients_with_change",
+        "patient_prevalence",
+        "mean_patient_transition_fraction",
+    ],
     "cross_group_similarity": [
         "group_left",
         "group_right",
@@ -325,6 +334,20 @@ def _top_combination_rows(
     return selected
 
 
+def _top_item_change_rows(
+    rows: list[dict[str, object]], limit_per_group_direction: int = 5
+) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        key = (str(row["group"]), str(row["change_type"]))
+        if counts.get(key, 0) >= limit_per_group_direction:
+            continue
+        selected.append(row)
+        counts[key] = counts.get(key, 0) + 1
+    return selected
+
+
 def _network_membership_summary_rows(
     rows: list[dict[str, object]],
 ) -> list[dict[str, object]]:
@@ -366,6 +389,12 @@ def _write_report(
     )
     longitudinal_table = _markdown_table(
         analysis.tables["longitudinal_summary"], TABLE_FIELDS["longitudinal_summary"]
+    )
+    longitudinal_item_change_table = _markdown_table(
+        _top_item_change_rows(
+            analysis.tables["longitudinal_item_change_tendency"]
+        ),
+        TABLE_FIELDS["longitudinal_item_change_tendency"],
     )
     combination_table = _markdown_table(
         _top_combination_rows(analysis.tables["frequent_item_combinations"]),
@@ -486,6 +515,12 @@ Members retained in every configured group:
 ## Patient-linked adjacent-prescription change
 
 {longitudinal_table}
+
+### Reportable item-level addition and removal tendencies
+
+Rows are patient-equal historical summaries. Each direction is shown only when at least the configured public minimum number of repeat patients experienced that change; a missing direction is not zero and is not a treatment recommendation. The complete table is available in `longitudinal_item_change_tendency.csv`.
+
+{longitudinal_item_change_table}
 
 ## Matched same-clinician different-patient reference
 
