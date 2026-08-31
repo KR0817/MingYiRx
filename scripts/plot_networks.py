@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -11,7 +12,7 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-matplotlib.rcParams["svg.hashsalt"] = "mingyirx-network-v0.8"
+matplotlib.rcParams["svg.hashsalt"] = "mingyirx-network-v0.9"
 os.environ.setdefault("SOURCE_DATE_EPOCH", "0")
 
 import matplotlib.pyplot as plt
@@ -336,6 +337,182 @@ def _draw_threshold_sensitivity(
     plt.close(figure)
 
 
+def _short_group_label(group: str) -> str:
+    stem = group.removesuffix("_strict")
+    return stem.replace("_", " ").upper()
+
+
+def _membership_patterns(
+    membership: pd.DataFrame, groups: list[str], member_type: str
+) -> tuple[list[tuple[str, ...]], list[int]]:
+    patterns = [
+        combination
+        for size in range(len(groups), 0, -1)
+        for combination in itertools.combinations(groups, size)
+    ]
+    counts = {pattern: 0 for pattern in patterns}
+    for present_groups in membership.loc[
+        membership["member_type"].eq(member_type), "groups_present"
+    ].astype(str):
+        present = set(present_groups.split(";"))
+        projected = tuple(group for group in groups if group in present)
+        if projected:
+            counts[projected] += 1
+    return patterns, [counts[pattern] for pattern in patterns]
+
+
+def _draw_cross_group_overlap(
+    overlap: pd.DataFrame,
+    membership: pd.DataFrame,
+    groups: list[str],
+    output_dir: Path,
+) -> None:
+    multipanel = cns.multipanel(max_width=1500)
+    axes = [
+        multipanel.panel(
+            label,
+            width=540 if index == 0 else 480,
+            height=420,
+            pad_left=20,
+            pad_top=12,
+            margin_right=42,
+            margin_bottom=48,
+        )
+        for index, label in enumerate(("A", "B"))
+    ]
+
+    patterns, node_counts = _membership_patterns(membership, groups, "node")
+    _, edge_counts = _membership_patterns(membership, groups, "edge")
+    positions = list(range(len(patterns)))
+    pattern_labels = [
+        " + ".join(_short_group_label(group) for group in pattern)
+        for pattern in patterns
+    ]
+    ax = axes[0]
+    for column, counts, color in (
+        (0, node_counts, "#5B6FA8"),
+        (1, edge_counts, "#C45A46"),
+    ):
+        sizes = [75 + 42 * math.sqrt(count) for count in counts]
+        facecolors = [color if count else "white" for count in counts]
+        edgecolors = [color if count else "#9A9A9A" for count in counts]
+        ax.scatter(
+            [column] * len(positions),
+            positions,
+            s=sizes,
+            c=facecolors,
+            edgecolors=edgecolors,
+            linewidths=1.3,
+            alpha=0.9,
+            zorder=2,
+        )
+        for position, count in zip(positions, counts, strict=True):
+            ax.text(
+                column,
+                position,
+                str(count),
+                ha="center",
+                va="center",
+                fontsize=9.5,
+                fontweight="bold",
+                color="white" if count else "#555555",
+                zorder=3,
+            )
+    ax.set_yticks(positions, pattern_labels)
+    ax.set_xticks([0, 1], ["Stable items", "Co-prescription edges"])
+    ax.invert_yaxis()
+    ax.set_xlim(-0.55, 1.55)
+    ax.set_title(
+        "Primary-network membership patterns",
+        loc="left",
+        fontsize=13,
+        fontweight="bold",
+    )
+    ax.grid(axis="y", color="#E4E4E4", linewidth=0.7, alpha=0.7)
+    ax.spines[["top", "right", "left", "bottom"]].set_visible(False)
+    ax.tick_params(axis="y", length=0, labelsize=10.5)
+    ax.tick_params(axis="x", length=0, labelsize=10.5, pad=9)
+
+    pair_rows: list[tuple[str, float, float]] = []
+    for left, right in itertools.combinations(groups, 2):
+        selected = overlap[
+            (
+                overlap["group_left"].eq(left)
+                & overlap["group_right"].eq(right)
+            )
+            | (
+                overlap["group_left"].eq(right)
+                & overlap["group_right"].eq(left)
+            )
+        ]
+        if selected.empty:
+            continue
+        row = selected.iloc[0]
+        pair_rows.append(
+            (
+                f"{_short_group_label(left)}–{_short_group_label(right)}",
+                float(row["node_jaccard"]),
+                float(row["edge_jaccard"]),
+            )
+        )
+
+    ax = axes[1]
+    positions = list(range(len(pair_rows)))
+    for position, (_, node_jaccard, edge_jaccard) in zip(
+        positions, pair_rows, strict=True
+    ):
+        ax.hlines(
+            position,
+            min(node_jaccard, edge_jaccard),
+            max(node_jaccard, edge_jaccard),
+            color="#AFAFAF",
+            linewidth=2.0,
+            zorder=1,
+        )
+    ax.scatter(
+        [row[1] for row in pair_rows],
+        positions,
+        s=82,
+        color="#5B6FA8",
+        label="Nodes",
+        zorder=2,
+    )
+    ax.scatter(
+        [row[2] for row in pair_rows],
+        positions,
+        s=82,
+        color="#C45A46",
+        marker="s",
+        label="Edges",
+        zorder=2,
+    )
+    ax.set_yticks(positions, [row[0] for row in pair_rows])
+    ax.invert_yaxis()
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_xticks([0, 0.25, 0.5, 0.75, 1.0])
+    ax.set_xlabel("Membership Jaccard", fontsize=10.5)
+    ax.set_title("Pairwise overlap", loc="left", fontsize=13, fontweight="bold")
+    ax.grid(axis="x", color="#D9D9D9", linewidth=0.7, alpha=0.65)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.tick_params(axis="y", length=0, labelsize=10.5)
+    ax.tick_params(axis="x", labelsize=9)
+    ax.legend(frameon=False, loc="lower right", fontsize=9.5)
+
+    figure = plt.gcf()
+    figure.text(
+        0.5,
+        0.012,
+        "Counts and Jaccard use prespecified primary thresholds; non-membership does not mean non-use",
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        color="#444444",
+    )
+    cns.savefig(output_dir / "network_cross_group_overlap.svg")
+    cns.savefig(output_dir / "network_cross_group_overlap.png")
+    plt.close(figure)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Plot privacy-screened MingYiRx recurrent-item networks."
@@ -365,6 +542,14 @@ def main() -> None:
             "primary_setting",
         },
     )
+    overlap = _read_table(
+        args.input_dir / "network_group_overlap.csv",
+        {"group_left", "group_right", "node_jaccard", "edge_jaccard"},
+    )
+    membership = _read_table(
+        args.input_dir / "network_membership.csv",
+        {"member_type", "groups_present"},
+    )
     groups = _selected_groups(sensitivity, args.groups)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -378,6 +563,10 @@ def main() -> None:
     ):
         _draw_networks(nodes, edges, sensitivity, groups, args.output_dir)
         _draw_threshold_sensitivity(sensitivity, groups, args.output_dir)
+        if len(groups) >= 2:
+            _draw_cross_group_overlap(
+                overlap, membership, groups, args.output_dir
+            )
 
     figure_paths = sorted(args.output_dir.glob("network_*.png")) + sorted(
         args.output_dir.glob("network_*.svg")
@@ -391,6 +580,8 @@ def main() -> None:
         args.input_dir / "network_nodes.csv",
         args.input_dir / "network_edges.csv",
         args.input_dir / "network_threshold_sensitivity.csv",
+        args.input_dir / "network_group_overlap.csv",
+        args.input_dir / "network_membership.csv",
     ]
     manifest = {
         "groups": groups,

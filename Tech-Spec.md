@@ -11,7 +11,7 @@ MingYiRx is a local Python CLI with a small functional core:
 5. `privacy.py` suppresses low-count cells and scans public artifacts.
 6. `pipeline.py` orchestrates a deterministic run and writes a manifest.
 
-The first version uses only the Python standard library. Plotting and advanced inference remain optional future modules.
+The core analysis uses only the Python standard library. Optional plotting runs in a separate CNSPlots environment and reads public aggregates only; adjusted inference remains a future module.
 
 ## Canonical input
 
@@ -133,6 +133,12 @@ For every unordered eligible node pair, the edge support is the number of first-
 
 The prespecified sensitivity grid crosses `network_analysis.node_prevalence_thresholds` with `network_analysis.edge_cosine_thresholds`. Every row reports node and edge counts, density, connected components, largest-component fraction, and node/edge membership retention and Jaccard relative to the primary setting. This directly audits threshold dependence rather than inferring robustness from similar-looking layouts.
 
+Cross-group network comparison uses only the primary threshold setting. For every group pair and separately for nodes and edges, it reports intersection counts and membership Jaccard:
+
+`J(A, B) = |A ∩ B| / |A ∪ B|`
+
+Every public node or edge also receives an exact configured-group membership pattern. `all_groups`, `multi_group`, and `single_group` describe only membership in the thresholded public networks. They do not encode zero use, exclusivity, contraindication, clinical response, or a traditional compatibility interpretation. When both compared sets are empty, Jaccard is null because there is no observed membership universe to compare.
+
 The core package does not estimate communities or fit degree-distribution models. Optional figures use the public aggregate node/edge tables, a fixed random seed for deterministic group-specific layouts, and editable SVG output. Cross-group comparison uses the same node/edge encodings and quantitative membership summaries, not node position. Neither layout, centrality, connectedness, nor lift establishes a traditional compatibility rule, syndrome, mechanism, efficacy, or scale-free structure.
 
 ## Privacy
@@ -169,6 +175,8 @@ python -m mingyirx run --config CONFIG --input CSV [--input CSV ...] --output DI
 - `network_nodes.csv`
 - `network_edges.csv`
 - `network_threshold_sensitivity.csv`
+- `network_group_overlap.csv`
+- `network_membership.csv`
 - `report.md`
 - `run_manifest.json`
 

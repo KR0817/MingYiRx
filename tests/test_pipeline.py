@@ -92,7 +92,7 @@ class PipelineTests(unittest.TestCase):
             manifest = run_pipeline(CONFIG, INPUT, output)
             self.assertEqual(manifest["gate"], "PASS_WITH_WARNINGS")
             self.assertEqual(manifest["privacy_scan"]["issues"], [])
-            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 16)
+            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 18)
             self.assertEqual(len(manifest["inputs"]), 1)
             self.assertEqual(manifest["input_reconciliation"]["raw_rows"], 60)
             self.assertEqual(manifest["input_reconciliation"]["analysis_rows"], 60)
@@ -104,6 +104,8 @@ class PipelineTests(unittest.TestCase):
                 "network_nodes.csv",
                 "network_edges.csv",
                 "network_threshold_sensitivity.csv",
+                "network_group_overlap.csv",
+                "network_membership.csv",
                 "longitudinal_summary.csv",
                 "transition_mode_summary.csv",
                 "cross_group_similarity.csv",
@@ -225,8 +227,42 @@ class PipelineTests(unittest.TestCase):
                 )
             )
 
+            with (output / "network_group_overlap.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                network_overlap = list(csv.DictReader(handle))
+            sjd_as = next(
+                row
+                for row in network_overlap
+                if row["group_left"] == "sjd" and row["group_right"] == "as"
+            )
+            self.assertEqual(sjd_as["common_nodes"], "2")
+            self.assertEqual(sjd_as["node_jaccard"], "1")
+            self.assertEqual(sjd_as["common_edges"], "1")
+            self.assertEqual(sjd_as["edge_jaccard"], "1")
+
+            with (output / "network_membership.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                network_membership = list(csv.DictReader(handle))
+            shared_node = next(
+                row
+                for row in network_membership
+                if row["member_type"] == "node" and row["member"] == "Shared"
+            )
+            self.assertEqual(shared_node["groups_present"], "ra;sjd;as")
+            self.assertEqual(shared_node["membership_class"], "all_groups")
+            shared_edge = next(
+                row
+                for row in network_membership
+                if row["member_type"] == "edge"
+                and row["member"] == "Common2 | Shared"
+            )
+            self.assertEqual(shared_edge["groups_present"], "sjd;as")
+            self.assertEqual(shared_edge["membership_class"], "multi_group")
+
             repeated_manifest = run_pipeline(CONFIG, INPUT, output)
-            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 16)
+            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 18)
             self.assertEqual(repeated_manifest["artifacts"], manifest["artifacts"])
 
     def test_exact_bootstrap_core_selection_probability(self) -> None:

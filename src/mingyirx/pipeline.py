@@ -86,6 +86,30 @@ TABLE_FIELDS = {
         "edge_jaccard_vs_primary",
         "primary_setting",
     ],
+    "network_group_overlap": [
+        "group_left",
+        "group_left_label",
+        "group_right",
+        "group_right_label",
+        "left_nodes",
+        "right_nodes",
+        "common_nodes",
+        "node_jaccard",
+        "left_edges",
+        "right_edges",
+        "common_edges",
+        "edge_jaccard",
+    ],
+    "network_membership": [
+        "member_type",
+        "member",
+        "item_1",
+        "item_2",
+        "groups_present",
+        "group_labels_present",
+        "groups_present_n",
+        "membership_class",
+    ],
     "longitudinal_summary": [
         "group",
         "repeat_patients",
@@ -301,6 +325,37 @@ def _top_combination_rows(
     return selected
 
 
+def _network_membership_summary_rows(
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    counts: dict[tuple[str, str, str, int], int] = {}
+    for row in rows:
+        key = (
+            str(row["member_type"]),
+            str(row["groups_present"]),
+            str(row["group_labels_present"]),
+            int(row["groups_present_n"]),
+        )
+        counts[key] = counts.get(key, 0) + 1
+    return [
+        {
+            "member_type": key[0],
+            "groups_present": key[1],
+            "group_labels_present": key[2],
+            "groups_present_n": key[3],
+            "members": count,
+        }
+        for key, count in sorted(
+            counts.items(),
+            key=lambda item: (
+                0 if item[0][0] == "node" else 1,
+                -item[0][3],
+                item[0][1],
+            ),
+        )
+    ]
+
+
 def _write_report(
     path: Path,
     context: ValidationContext,
@@ -330,6 +385,28 @@ def _write_report(
             "connected_components",
             "largest_component_fraction",
         ],
+    )
+    network_overlap_table = _markdown_table(
+        analysis.tables["network_group_overlap"],
+        TABLE_FIELDS["network_group_overlap"],
+    )
+    network_membership_summary_table = _markdown_table(
+        _network_membership_summary_rows(analysis.tables["network_membership"]),
+        [
+            "member_type",
+            "groups_present",
+            "group_labels_present",
+            "groups_present_n",
+            "members",
+        ],
+    )
+    network_all_group_members_table = _markdown_table(
+        [
+            row
+            for row in analysis.tables["network_membership"]
+            if row["membership_class"] == "all_groups"
+        ],
+        ["member_type", "member", "group_labels_present"],
     )
     similarity_table = _markdown_table(
         analysis.tables["cross_group_similarity"], TABLE_FIELDS["cross_group_similarity"]
@@ -390,9 +467,21 @@ The table shows at most three combinations per group and size, including the pre
 
 ## Privacy-safe recurrent-item networks
 
-Primary networks use stable recurrent items at the configured core-prevalence threshold and privacy-screened edges at the configured cosine threshold. Complete node, edge, and threshold-grid membership results are provided in the three network CSV files.
+Primary networks use stable recurrent items at the configured core-prevalence threshold and privacy-screened edges at the configured cosine threshold. Complete node, edge, threshold-grid, and cross-group membership results are provided in the network CSV files.
 
 {network_table}
+
+### Cross-group primary-network membership
+
+Pairwise Jaccard compares membership in the thresholded public networks, not raw exposure. A missing member in another group means only that it did not pass all publication thresholds there.
+
+{network_overlap_table}
+
+{network_membership_summary_table}
+
+Members retained in every configured group:
+
+{network_all_group_members_table}
 
 ## Patient-linked adjacent-prescription change
 

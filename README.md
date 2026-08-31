@@ -5,6 +5,7 @@ MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方�
 - 不同记录标签表型的首次处方药味结构；
 - 经过隐私阈值和患者重抽样稳定性筛选的首次处方药对与三药组合；
 - 使用共享布局和预设阈值网格审计的稳定高频药味共现网络；
+- 主网络中三病共享、两病共享和单病种药味/药对的成员模式及两两Jaccard；
 - 同一患者相邻复诊处方的延续与加减；
 - 加药、减药、记录剂量改变和处方修改负担；
 - 不同疾病组的处方分布重叠；
@@ -13,7 +14,7 @@ MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方�
 
 它不分析疗效、安全性、处方合理性、机制或诊断性能。
 
-当前版本为 `0.8.0`：除多文件GB18030入口和资格门控外，已支持同医师不同患者匹配参照、患者级bootstrap区间、匹配与时间切点敏感性分析、版本化药名字典、剂量冲突汇总审计、患者等权的稳定药对/三药组合，以及阈值敏感的共现网络。随机分析使用预先定义的固定种子；组合与网络节点稳定性使用精确二项概率，不引入Monte Carlo误差。
+当前版本为 `0.9.0`：除多文件GB18030入口和资格门控外，已支持同医师不同患者匹配参照、患者级bootstrap区间、匹配与时间切点敏感性分析、版本化药名字典、剂量冲突汇总审计、患者等权的稳定药对/三药组合、阈值敏感共现网络，以及主网络节点/药对的跨病种成员重叠。随机分析使用预先定义的固定种子；组合与网络节点稳定性使用精确二项概率，不引入Monte Carlo误差。
 
 ## 为什么不是直接整理原论文脚本
 
@@ -57,6 +58,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run_demo.ps1
 10. 如有药师确认的药名字典，在 `item_normalization` 中记录版本、相对/绝对路径和SHA-256；真实数据无权威文件时保持显式的 `source-string` 模式。
 11. 在 `combination_analysis` 中预设组合阶数和稳定性概率阈值；不要根据结果事后调整 `core_prevalence`。
 12. 在 `network_analysis` 中预设主cosine阈值以及节点流行率/cosine敏感性网格；网络成员变化应与网络规模一起报告。
+13. 跨病种比较只使用同一主阈值；“单病种成员”表示仅在该阈值下入选，不能写成该病专用或其他病种未使用。
 
 规范输入为一行一个处方药味，必需字段是：
 
@@ -78,7 +80,7 @@ dose, unit, physician_id
 
 ## 输出
 
-运行后产生十五张汇总表、一个Markdown报告和一个运行清单：
+运行后产生十七张汇总表、一个Markdown报告和一个运行清单：
 
 - `cohort_summary.csv`
 - `first_prescription_item_prevalence.csv`
@@ -86,6 +88,8 @@ dose, unit, physician_id
 - `network_nodes.csv`
 - `network_edges.csv`
 - `network_threshold_sensitivity.csv`
+- `network_group_overlap.csv`
+- `network_membership.csv`
 - `longitudinal_summary.csv`
 - `transition_mode_summary.csv`
 - `cross_group_similarity.csv`
@@ -110,7 +114,7 @@ dose, unit, physician_id
   --groups ra sjd as
 ```
 
-脚本生成紧凑的PNG预览和可编辑SVG：三病种使用相同视觉编码和固定随机种子的独立布局，阈值热图显示具体边集合相对主分析的Jaccard，而不只比较边数。不同面板中的坐标位置不作跨病种解释。
+脚本生成三套紧凑PNG预览和可编辑SVG：三病种网络使用相同视觉编码和固定随机种子的独立布局，阈值热图显示具体边集合相对主分析的Jaccard，跨病种图则直接展示共享层级计数和节点/药对两两Jaccard。不同网络面板中的坐标位置不作跨病种解释。
 
 ## 论文分析的推荐顺序
 
@@ -121,6 +125,7 @@ dose, unit, physician_id
 5. 患者不重叠的主时期比较和预设切点压力测试。
 6. 用预设支持度和精确重抽样概率筛选稳定药对/三药组合。
 7. 用预设节点/cosine阈值网格审计网络成员稳定性，并保持探索性解释。
+8. 在同一主阈值下比较节点与药对成员重叠，区分共享药味与重新组合形成的病种差异。
 
 具体边界见 [analysis-contract.md](docs/analysis-contract.md)，原陶庆文研究到通用模块的映射见 [migration-map.md](docs/migration-map.md)。
 

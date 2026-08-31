@@ -534,6 +534,93 @@ def _membership_comparison(
     return intersection / len(primary), intersection / union
 
 
+def _network_cross_group_rows(
+    group_names: tuple[str, ...],
+    group_labels: dict[str, str],
+    nodes_by_group: dict[str, set[str]],
+    edges_by_group: dict[str, set[tuple[str, str]]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    overlap_rows: list[dict[str, object]] = []
+    for left, right in itertools.combinations(group_names, 2):
+        left_nodes = nodes_by_group[left]
+        right_nodes = nodes_by_group[right]
+        node_union = left_nodes | right_nodes
+        left_edges = edges_by_group[left]
+        right_edges = edges_by_group[right]
+        edge_union = left_edges | right_edges
+        overlap_rows.append(
+            {
+                "group_left": left,
+                "group_left_label": group_labels[left],
+                "group_right": right,
+                "group_right_label": group_labels[right],
+                "left_nodes": len(left_nodes),
+                "right_nodes": len(right_nodes),
+                "common_nodes": len(left_nodes & right_nodes),
+                "node_jaccard": (
+                    len(left_nodes & right_nodes) / len(node_union)
+                    if node_union
+                    else None
+                ),
+                "left_edges": len(left_edges),
+                "right_edges": len(right_edges),
+                "common_edges": len(left_edges & right_edges),
+                "edge_jaccard": (
+                    len(left_edges & right_edges) / len(edge_union)
+                    if edge_union
+                    else None
+                ),
+            }
+        )
+
+    membership_rows: list[dict[str, object]] = []
+    all_nodes = set().union(*(nodes_by_group[group] for group in group_names))
+    all_edges = set().union(*(edges_by_group[group] for group in group_names))
+    total_groups = len(group_names)
+
+    def add_membership(
+        member_type: str, member: str, item_1: str, item_2: str | None
+    ) -> None:
+        memberships = nodes_by_group if member_type == "node" else edges_by_group
+        key: object = item_1 if member_type == "node" else (item_1, item_2)
+        present = tuple(group for group in group_names if key in memberships[group])
+        present_n = len(present)
+        if present_n == total_groups:
+            membership_class = "all_groups"
+        elif present_n == 1:
+            membership_class = "single_group"
+        else:
+            membership_class = "multi_group"
+        membership_rows.append(
+            {
+                "member_type": member_type,
+                "member": member,
+                "item_1": item_1,
+                "item_2": item_2,
+                "groups_present": ";".join(present),
+                "group_labels_present": ";".join(
+                    group_labels[group] for group in present
+                ),
+                "groups_present_n": present_n,
+                "membership_class": membership_class,
+            }
+        )
+
+    for item in sorted(all_nodes):
+        add_membership("node", item, item, None)
+    for left, right in sorted(all_edges):
+        add_membership("edge", f"{left} | {right}", left, right)
+    membership_rows.sort(
+        key=lambda row: (
+            0 if row["member_type"] == "node" else 1,
+            -int(row["groups_present_n"]),
+            str(row["groups_present"]),
+            str(row["member"]),
+        )
+    )
+    return overlap_rows, membership_rows
+
+
 def _network_setting(
     patient_count: int,
     item_counts: Counter[str],
@@ -587,6 +674,8 @@ def _network_rows(
     list[dict[str, object]],
     list[dict[str, object]],
     list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
     dict[str, object],
     tuple[str, ...],
 ]:
@@ -603,9 +692,11 @@ def _network_rows(
         "primary_nodes": 0,
         "primary_edges": 0,
         "sensitivity_rows": 0,
+        "group_overlap_rows": 0,
+        "membership_rows": 0,
     }
     if not network_config.enabled:
-        return [], [], [], metadata, ()
+        return [], [], [], [], [], metadata, ()
 
     group_order = {
         group.name: index for index, group in enumerate(config.groups)
@@ -620,6 +711,12 @@ def _network_rows(
     node_rows: list[dict[str, object]] = []
     edge_rows: list[dict[str, object]] = []
     sensitivity_rows: list[dict[str, object]] = []
+    primary_nodes_by_group: dict[str, set[str]] = {
+        group: set() for group in group_order
+    }
+    primary_edges_by_group: dict[str, set[tuple[str, str]]] = {
+        group: set() for group in group_order
+    }
     warnings: list[str] = []
 
     for group in group_order:
@@ -664,6 +761,8 @@ def _network_rows(
         ]
         primary_node_set = set(primary_nodes)
         primary_edge_set = set(primary_edges)
+        primary_nodes_by_group[group] = primary_node_set
+        primary_edges_by_group[group] = primary_edge_set
 
         degrees = {node: 0 for node in primary_nodes}
         weighted_degrees = {node: 0.0 for node in primary_nodes}
@@ -766,10 +865,26 @@ def _network_rows(
             float(row["edge_cosine_threshold"]),
         )
     )
+    overlap_rows, membership_rows = _network_cross_group_rows(
+        tuple(group_order),
+        group_labels,
+        primary_nodes_by_group,
+        primary_edges_by_group,
+    )
     metadata["primary_nodes"] = len(node_rows)
     metadata["primary_edges"] = len(edge_rows)
     metadata["sensitivity_rows"] = len(sensitivity_rows)
-    return node_rows, edge_rows, sensitivity_rows, metadata, tuple(warnings)
+    metadata["group_overlap_rows"] = len(overlap_rows)
+    metadata["membership_rows"] = len(membership_rows)
+    return (
+        node_rows,
+        edge_rows,
+        sensitivity_rows,
+        overlap_rows,
+        membership_rows,
+        metadata,
+        tuple(warnings),
+    )
 
 
 def _prevalence(
@@ -1559,6 +1674,8 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
         network_node_rows,
         network_edge_rows,
         network_sensitivity_rows,
+        network_group_overlap_rows,
+        network_membership_rows,
         network_metadata,
         network_warnings,
     ) = _network_rows(first_visits, config)
@@ -1571,6 +1688,8 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
             "network_nodes": network_node_rows,
             "network_edges": network_edge_rows,
             "network_threshold_sensitivity": network_sensitivity_rows,
+            "network_group_overlap": network_group_overlap_rows,
+            "network_membership": network_membership_rows,
             "longitudinal_summary": longitudinal_rows,
             "transition_mode_summary": mode_rows,
             "cross_group_similarity": _cross_group_rows(
