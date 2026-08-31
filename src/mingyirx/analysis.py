@@ -353,6 +353,152 @@ def _first_visits(
     return {patient_id: visits[0] for patient_id, visits in visits_by_patient.items() if visits}
 
 
+def _binomial_survival_probability(
+    sample_size: int, probability: float, minimum_count: int
+) -> float:
+    """Return P[X >= minimum_count] for X ~ Binomial(sample_size, probability)."""
+    if minimum_count <= 0:
+        return 1.0
+    if minimum_count > sample_size or probability <= 0:
+        return 0.0
+    if probability >= 1:
+        return 1.0
+
+    log_probability = math.log(probability)
+    log_complement = math.log1p(-probability)
+
+    def probability_mass(count: int) -> float:
+        return math.exp(
+            math.lgamma(sample_size + 1)
+            - math.lgamma(count + 1)
+            - math.lgamma(sample_size - count + 1)
+            + count * log_probability
+            + (sample_size - count) * log_complement
+        )
+
+    mode = math.floor((sample_size + 1) * probability)
+    if minimum_count <= mode:
+        count = minimum_count - 1
+        mass = probability_mass(count)
+        lower_tail = mass
+        while count > 0:
+            mass *= count / (sample_size - count + 1)
+            mass *= (1 - probability) / probability
+            lower_tail += mass
+            count -= 1
+        result = 1 - lower_tail
+    else:
+        count = minimum_count
+        mass = probability_mass(count)
+        result = mass
+        while count < sample_size:
+            mass *= (sample_size - count) / (count + 1)
+            mass *= probability / (1 - probability)
+            result += mass
+            count += 1
+    return max(0.0, min(1.0, result))
+
+
+def _frequent_combination_rows(
+    first_visits: dict[str, PrescriptionVisit], config: AnalysisConfig
+) -> tuple[list[dict[str, object]], dict[str, object], tuple[str, ...]]:
+    combination_config = config.combination_analysis
+    metadata: dict[str, object] = {
+        "enabled": combination_config.enabled,
+        "sizes": list(combination_config.sizes),
+        "minimum_support_patients": config.min_public_n,
+        "minimum_support": config.core_prevalence,
+        "stability_probability_threshold": (
+            combination_config.stability_probability
+        ),
+        "candidate_combinations": 0,
+        "stable_combinations": 0,
+    }
+    if not combination_config.enabled:
+        return [], metadata, ()
+
+    group_order = {
+        group.name: index for index, group in enumerate(config.groups)
+    }
+    group_visits: dict[str, list[PrescriptionVisit]] = {
+        group.name: [] for group in config.groups
+    }
+    for visit in first_visits.values():
+        group_visits[visit.group].append(visit)
+
+    rows: list[dict[str, object]] = []
+    warnings: list[str] = []
+    for group in group_order:
+        visits = group_visits[group]
+        patient_count = len(visits)
+        if patient_count < config.min_public_n:
+            warnings.append(
+                f"Combination analysis for {group} was suppressed because the public threshold was not met"
+            )
+            continue
+
+        item_counts: Counter[str] = Counter()
+        for visit in visits:
+            item_counts.update(visit.items)
+        public_items = {
+            item for item, count in item_counts.items() if count >= config.min_public_n
+        }
+
+        for size in combination_config.sizes:
+            combination_counts: Counter[tuple[str, ...]] = Counter()
+            for visit in visits:
+                eligible_items = sorted(visit.items & public_items)
+                combination_counts.update(itertools.combinations(eligible_items, size))
+
+            minimum_core_count = math.ceil(
+                patient_count * config.core_prevalence
+            )
+            for combination, support_patients in combination_counts.items():
+                support = support_patients / patient_count
+                if (
+                    support_patients < config.min_public_n
+                    or support < config.core_prevalence
+                ):
+                    continue
+                expected_support = math.prod(
+                    item_counts[item] / patient_count for item in combination
+                )
+                selection_probability = _binomial_survival_probability(
+                    patient_count, support, minimum_core_count
+                )
+                rows.append(
+                    {
+                        "group": group,
+                        "patients": patient_count,
+                        "combination_size": size,
+                        "combination": " | ".join(combination),
+                        "support_patients": support_patients,
+                        "support": support,
+                        "lift": support / expected_support,
+                        "bootstrap_core_selection_probability": selection_probability,
+                        "stable_core_combination": (
+                            selection_probability
+                            >= combination_config.stability_probability
+                        ),
+                    }
+                )
+
+    rows.sort(
+        key=lambda row: (
+            group_order[str(row["group"])],
+            int(row["combination_size"]),
+            -float(row["support"]),
+            -float(row["lift"]),
+            str(row["combination"]),
+        )
+    )
+    metadata["candidate_combinations"] = len(rows)
+    metadata["stable_combinations"] = sum(
+        bool(row["stable_core_combination"]) for row in rows
+    )
+    return rows, metadata, tuple(warnings)
+
+
 def _prevalence(
     first_visits: dict[str, PrescriptionVisit], group_names: tuple[str, ...]
 ) -> tuple[dict[str, Counter[str]], dict[str, dict[str, float]], dict[str, int]]:
@@ -1133,11 +1279,15 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
         matched_metadata,
         matched_warnings,
     ) = _matched_reference_rows(visits_by_patient, config)
+    combination_rows, combination_metadata, combination_warnings = (
+        _frequent_combination_rows(first_visits, config)
+    )
 
     return AnalysisResult(
         tables={
             "cohort_summary": _cohort_summary(visits_by_patient, group_names),
             "first_prescription_item_prevalence": first_rows,
+            "frequent_item_combinations": combination_rows,
             "longitudinal_summary": longitudinal_rows,
             "transition_mode_summary": mode_rows,
             "cross_group_similarity": _cross_group_rows(
@@ -1172,6 +1322,9 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
                 ),
             },
             "matched_reference": matched_metadata,
+            "combination_analysis": combination_metadata,
         },
-        warnings=tuple([*temporal_warnings, *matched_warnings]),
+        warnings=tuple(
+            [*temporal_warnings, *matched_warnings, *combination_warnings]
+        ),
     )

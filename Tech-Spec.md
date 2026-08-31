@@ -115,6 +115,16 @@ Assign each patient to a period by first eligible visit. Compare group-specific 
 
 The primary split uses `early_end_year`. A configured non-empty `temporal_cutpoints` list must include that primary year and repeats the same patient-disjoint estimands at each prespecified cut point. Every cut point reports prevalence-weighted Jaccard, base-2 Jensen-Shannon distance, and early-core retention. It does not search for an optimal cut point or test a temporal trend. If either period has fewer patients than `min_public_n`, both period counts and all derived metrics are suppressed and the warning does not disclose the small count.
 
+### Stable first-prescription combinations
+
+For each configured group, count each unordered two- or three-item combination at most once in each patient's first eligible prescription. A public candidate must have at least `min_public_n` exposed patients and support at least `core_prevalence`. Candidate generation first removes individual items below `min_public_n`.
+
+`support = exposed patients / first-prescription patients`
+
+`lift = observed support / product of constituent item prevalences`
+
+Lift is a descriptive marginal-frequency calibration, not synergy, compatibility, mechanism, or benefit. Stability is the exact probability that a same-size nonparametric patient bootstrap sample reaches `core_prevalence`. For a candidate observed in `k` of `n` patients, this is the binomial survival probability with `X ~ Binomial(n, k/n)` and threshold `ceil(n × core_prevalence)`. `combination_analysis.stability_probability` classifies stable combinations without finite-replicate Monte Carlo noise.
+
 ## Privacy
 
 - Default `min_public_n=10`; configuration below 10 is rejected unless `synthetic_mode=true`.
@@ -145,6 +155,7 @@ python -m mingyirx run --config CONFIG --input CSV [--input CSV ...] --output DI
 - `matched_reference_sensitivity.csv`
 - `item_normalization_audit.csv`
 - `dose_conflict_audit.csv`
+- `frequent_item_combinations.csv`
 - `report.md`
 - `run_manifest.json`
 

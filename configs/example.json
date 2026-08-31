@@ -25,6 +25,11 @@
     "bootstrap_replicates": 200,
     "null_replicates": 200
   },
+  "combination_analysis": {
+    "enabled": true,
+    "sizes": [2, 3],
+    "stability_probability": 0.8
+  },
   "early_end_year": 2019,
   "temporal_cutpoints": [2018, 2019, 2020, 2021],
   "core_prevalence": 0.5,

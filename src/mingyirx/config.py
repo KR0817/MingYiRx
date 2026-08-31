@@ -58,6 +58,13 @@ class MatchedReferenceConfig:
 
 
 @dataclass(frozen=True)
+class CombinationAnalysisConfig:
+    enabled: bool
+    sizes: tuple[int, ...]
+    stability_probability: float
+
+
+@dataclass(frozen=True)
 class AnalysisConfig:
     project_id: str
     dataset_id: str
@@ -78,6 +85,7 @@ class AnalysisConfig:
     item_eligibility: ItemEligibility
     item_normalization: ItemNormalizationConfig
     matched_reference: MatchedReferenceConfig
+    combination_analysis: CombinationAnalysisConfig
 
 
 def _required_string(data: dict[str, Any], key: str) -> str:
@@ -331,6 +339,39 @@ def load_config(path: Path) -> AnalysisConfig:
                 "Real-data matched_reference.null_replicates must be at least 1000"
             )
 
+    combination_raw = raw.get("combination_analysis", {})
+    if not isinstance(combination_raw, dict):
+        raise ConfigError("combination_analysis must be a JSON object")
+    combination_sizes_raw = combination_raw.get("sizes", [2, 3])
+    if (
+        not isinstance(combination_sizes_raw, list)
+        or not combination_sizes_raw
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in combination_sizes_raw
+        )
+    ):
+        raise ConfigError("combination_analysis.sizes must be a non-empty integer list")
+    combination_sizes = tuple(combination_sizes_raw)
+    if combination_sizes != tuple(sorted(set(combination_sizes))):
+        raise ConfigError(
+            "combination_analysis.sizes must contain unique values in ascending order"
+        )
+    if any(size not in {2, 3} for size in combination_sizes):
+        raise ConfigError("combination_analysis.sizes supports only 2 and 3")
+    combination_stability_probability = float(
+        combination_raw.get("stability_probability", 0.80)
+    )
+    if not 0 < combination_stability_probability <= 1:
+        raise ConfigError(
+            "combination_analysis.stability_probability must be in (0, 1]"
+        )
+    combination_analysis = CombinationAnalysisConfig(
+        enabled=bool(combination_raw.get("enabled", False)),
+        sizes=combination_sizes,
+        stability_probability=combination_stability_probability,
+    )
+
     date_formats = _string_list(
         raw.get("date_formats", ["%Y-%m-%d", "%Y/%m/%d", "%Y/%m/%d %H:%M:%S"]),
         "date_formats",
@@ -381,4 +422,5 @@ def load_config(path: Path) -> AnalysisConfig:
         ),
         item_normalization=item_normalization,
         matched_reference=matched_reference,
+        combination_analysis=combination_analysis,
     )

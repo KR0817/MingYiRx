@@ -47,6 +47,11 @@
     "bootstrap_replicates": 5000,
     "null_replicates": 2000
   },
+  "combination_analysis": {
+    "enabled": true,
+    "sizes": [2, 3],
+    "stability_probability": 0.8
+  },
   "groups": [
     {
       "name": "ra_strict",

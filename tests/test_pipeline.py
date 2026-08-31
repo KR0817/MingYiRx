@@ -11,6 +11,7 @@ from pathlib import Path
 from mingyirx.analysis import (
     PrescriptionVisit,
     _MatchedTransition,
+    _binomial_survival_probability,
     _matched_control_distribution,
     _matched_reference_rows,
     _matched_sensitivity_rows,
@@ -91,7 +92,7 @@ class PipelineTests(unittest.TestCase):
             manifest = run_pipeline(CONFIG, INPUT, output)
             self.assertEqual(manifest["gate"], "PASS_WITH_WARNINGS")
             self.assertEqual(manifest["privacy_scan"]["issues"], [])
-            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 12)
+            self.assertEqual(manifest["privacy_scan"]["files_scanned"], 13)
             self.assertEqual(len(manifest["inputs"]), 1)
             self.assertEqual(manifest["input_reconciliation"]["raw_rows"], 60)
             self.assertEqual(manifest["input_reconciliation"]["analysis_rows"], 60)
@@ -99,6 +100,7 @@ class PipelineTests(unittest.TestCase):
             expected = {
                 "cohort_summary.csv",
                 "first_prescription_item_prevalence.csv",
+                "frequent_item_combinations.csv",
                 "longitudinal_summary.csv",
                 "transition_mode_summary.csv",
                 "cross_group_similarity.csv",
@@ -156,9 +158,51 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(normalization_row["unmapped_source_items"], "0")
             self.assertEqual(normalization_row["changed_item_lines"], "0")
 
+            with (output / "frequent_item_combinations.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                combination_rows = list(csv.DictReader(handle))
+            ra_pair = next(
+                row
+                for row in combination_rows
+                if row["group"] == "ra"
+                and row["combination"] == "Common2 | Fuling"
+            )
+            self.assertEqual(ra_pair["support_patients"], "2")
+            self.assertTrue(math.isclose(float(ra_pair["support"]), 0.5))
+            self.assertTrue(math.isclose(float(ra_pair["lift"]), 2.0))
+            self.assertTrue(
+                math.isclose(
+                    float(ra_pair["bootstrap_core_selection_probability"]),
+                    11 / 16,
+                )
+            )
+            self.assertEqual(ra_pair["stable_core_combination"], "False")
+
             repeated_manifest = run_pipeline(CONFIG, INPUT, output)
-            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 12)
+            self.assertEqual(repeated_manifest["privacy_scan"]["files_scanned"], 13)
             self.assertEqual(repeated_manifest["artifacts"], manifest["artifacts"])
+
+    def test_exact_bootstrap_core_selection_probability(self) -> None:
+        self.assertTrue(
+            math.isclose(
+                _binomial_survival_probability(4, 0.5, 2),
+                11 / 16,
+            )
+        )
+        self.assertEqual(_binomial_survival_probability(4, 1.0, 2), 1.0)
+        large_sample_probability = _binomial_survival_probability(5000, 0.5, 2500)
+        self.assertGreater(large_sample_probability, 0.5)
+        self.assertLess(large_sample_probability, 0.51)
+
+    def test_combination_sizes_are_restricted_to_pairs_and_triplets(self) -> None:
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))
+        config["combination_analysis"]["sizes"] = [1, 2]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "invalid_combinations.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                load_config(path)
 
     def test_real_configuration_rejects_low_public_threshold(self) -> None:
         config = json.loads(CONFIG.read_text(encoding="utf-8"))

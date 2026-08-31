@@ -32,6 +32,17 @@ TABLE_FIELDS = {
         "group_patients",
         "prevalence",
     ],
+    "frequent_item_combinations": [
+        "group",
+        "patients",
+        "combination_size",
+        "combination",
+        "support_patients",
+        "support",
+        "lift",
+        "bootstrap_core_selection_probability",
+        "stable_core_combination",
+    ],
     "longitudinal_summary": [
         "group",
         "repeat_patients",
@@ -233,6 +244,20 @@ def _markdown_table(rows: list[dict[str, object]], columns: list[str]) -> str:
     return "\n".join([header, divider, *body])
 
 
+def _top_combination_rows(
+    rows: list[dict[str, object]], limit_per_group_size: int = 3
+) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    counts: dict[tuple[str, int], int] = {}
+    for row in rows:
+        key = (str(row["group"]), int(row["combination_size"]))
+        if counts.get(key, 0) >= limit_per_group_size:
+            continue
+        selected.append(row)
+        counts[key] = counts.get(key, 0) + 1
+    return selected
+
+
 def _write_report(
     path: Path,
     context: ValidationContext,
@@ -243,6 +268,10 @@ def _write_report(
     )
     longitudinal_table = _markdown_table(
         analysis.tables["longitudinal_summary"], TABLE_FIELDS["longitudinal_summary"]
+    )
+    combination_table = _markdown_table(
+        _top_combination_rows(analysis.tables["frequent_item_combinations"]),
+        TABLE_FIELDS["frequent_item_combinations"],
     )
     similarity_table = _markdown_table(
         analysis.tables["cross_group_similarity"], TABLE_FIELDS["cross_group_similarity"]
@@ -294,6 +323,12 @@ def _write_report(
 ## Dose conflict audit
 
 {dose_conflict_table}
+
+## Frequent first-prescription combinations
+
+The table shows at most three combinations per group and size, including the prespecified stability classification. The complete privacy-screened aggregate table is available in `frequent_item_combinations.csv`.
+
+{combination_table}
 
 ## Patient-linked adjacent-prescription change
 
@@ -433,6 +468,13 @@ def run_pipeline(
                     context.config.matched_reference.bootstrap_replicates
                 ),
                 "null_replicates": context.config.matched_reference.null_replicates,
+            },
+            "combination_analysis": {
+                "enabled": context.config.combination_analysis.enabled,
+                "sizes": list(context.config.combination_analysis.sizes),
+                "stability_probability": (
+                    context.config.combination_analysis.stability_probability
+                ),
             },
         },
         "cohort_flow": {

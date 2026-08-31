@@ -60,3 +60,12 @@
 - The real Tao Qingwen run remained in explicit `source-string-v1` mode because the available supplement is a display-label table whose pharmacopoeial/botanical mapping status says the completed review record still needs transcription. The run contained 125,345 eligible lines and 417 distinct source strings; no semantic renaming was performed.
 - Public dose-conflict rows use primary small-cell suppression, complementary suppression of one additional positive group, and suppression of the overall numerators whenever subtraction could recover a protected group. Exact totals remain only in the ignored local manifest.
 - All nine pre-v0.6 scientific table hashes were unchanged, twelve tests passed, repeat-run artifacts were identical, and the real privacy scan reported zero issues. The next reusable analysis priority is privacy-aware stable pair/triplet extraction before optional network visualization.
+
+## 2026-09-01 — Version 0.7.0 stable combinations verified
+
+- `combination_analysis` now extracts unordered pairs and triplets from each patient's first eligible prescription. Public candidates must meet both `min_public_n` and the prespecified `core_prevalence`; lift remains a descriptive marginal-frequency calibration.
+- Stability is the exact plug-in nonparametric-bootstrap selection probability `P[X >= ceil(n × core_prevalence)]` for `X ~ Binomial(n, k/n)`. The implementation computes tails from the threshold to avoid large-sample underflow and contains no Monte Carlo randomness.
+- The real strict three-disease run produced 726 candidates and 622 stable combinations: RA 74 pairs/84 triplets with 65/70 stable, SjD 119/191 with 100/165 stable, and AS 84/174 with 82/140 stable.
+- The candidate row set, support counts, support values, lift values, and stability classifications exactly matched all 726 strict-group rows from the locked prior implementation. All eleven pre-v0.7 CSV table hashes were unchanged.
+- Fourteen tests and compilation passed. Two consecutive real runs produced identical hashes for all 13 public artifacts, and the privacy scan reported zero issues.
+- Network visualization remains deferred. The next step should define privacy-safe edge eligibility and prespecified threshold sensitivity before plotting; no scale-free, synergy, mechanism, or efficacy claim is permitted from co-occurrence data.

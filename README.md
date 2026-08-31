@@ -3,6 +3,7 @@
 MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方分析项目。它把一次性论文脚本拆成可配置的数据入口和稳定的分析定义，用于描述：
 
 - 不同记录标签表型的首次处方药味结构；
+- 经过隐私阈值和患者重抽样稳定性筛选的首次处方药对与三药组合；
 - 同一患者相邻复诊处方的延续与加减；
 - 加药、减药、记录剂量改变和处方修改负担；
 - 不同疾病组的处方分布重叠；
@@ -11,7 +12,7 @@ MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方�
 
 它不分析疗效、安全性、处方合理性、机制或诊断性能。
 
-当前版本为 `0.6.0`：除多文件GB18030入口和资格门控外，已支持同医师不同患者匹配参照、患者级bootstrap区间、匹配与时间切点敏感性分析，以及版本化药名字典和剂量冲突汇总审计。所有随机过程由预先定义的固定种子控制。
+当前版本为 `0.7.0`：除多文件GB18030入口和资格门控外，已支持同医师不同患者匹配参照、患者级bootstrap区间、匹配与时间切点敏感性分析、版本化药名字典、剂量冲突汇总审计，以及患者等权的稳定药对/三药组合。随机分析使用预先定义的固定种子；组合稳定性使用精确二项概率，不引入Monte Carlo误差。
 
 ## 为什么不是直接整理原论文脚本
 
@@ -53,6 +54,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run_demo.ps1
 8. 启用匹配参照时映射 `physician_id`；单医师历史数据缺少该列时，只有在来源已确认后才设置 `assume_single_physician=true`。
 9. 预先填写 `early_end_year` 和包含该年份的升序 `temporal_cutpoints`；不要根据结果寻找“最佳”分界点。
 10. 如有药师确认的药名字典，在 `item_normalization` 中记录版本、相对/绝对路径和SHA-256；真实数据无权威文件时保持显式的 `source-string` 模式。
+11. 在 `combination_analysis` 中预设组合阶数和稳定性概率阈值；不要根据结果事后调整 `core_prevalence`。
 
 规范输入为一行一个处方药味，必需字段是：
 
@@ -74,10 +76,11 @@ dose, unit, physician_id
 
 ## 输出
 
-运行后产生十一张汇总表、一个Markdown报告和一个运行清单：
+运行后产生十二张汇总表、一个Markdown报告和一个运行清单：
 
 - `cohort_summary.csv`
 - `first_prescription_item_prevalence.csv`
+- `frequent_item_combinations.csv`
 - `longitudinal_summary.csv`
 - `transition_mode_summary.csv`
 - `cross_group_similarity.csv`
@@ -99,7 +102,8 @@ dose, unit, physician_id
 3. 患者内相邻处方变化。
 4. 同医师不同患者背景参考及患者级bootstrap区间。
 5. 患者不重叠的主时期比较和预设切点压力测试。
-6. 最后才考虑稳定组合、网络和聚类，并保持探索性解释。
+6. 用预设支持度和精确重抽样概率筛选稳定药对/三药组合。
+7. 最后才考虑网络和聚类，并保持探索性解释。
 
 具体边界见 [analysis-contract.md](docs/analysis-contract.md)，原陶庆文研究到通用模块的映射见 [migration-map.md](docs/migration-map.md)。
 

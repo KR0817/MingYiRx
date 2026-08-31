@@ -12,11 +12,12 @@ The original study is a reference case, not a dependency of this repository.
 | Patient-disjoint time comparison | `analysis.py` | Implement in core |
 | Prespecified temporal cut-point sensitivity | `analysis.py` | Implemented in v0.5 |
 | Versioned item dictionary and dose-conflict audit | `config.py`, `analysis.py` | Implemented in v0.6 infrastructure; real mapping awaits authoritative file |
+| Stable first-prescription pairs/triplets | `analysis.py` | Implemented in v0.7 without network claims |
 | Matched different-patient reference | `analysis.py` | Implemented in v0.3 |
 | Patient bootstrap, empirical null, BH-FDR | `analysis.py` | Implemented in v0.3 |
 | Exact-match and minimum-five-control sensitivity | `analysis.py` | Implemented in v0.4 |
 | Adjusted GLM | Future `inference.py` | Requires a covariate contract |
-| Stable pairs/triplets and networks | Future optional module | Phase 3 |
+| Threshold-sensitive network and plotting templates | Future optional module | Phase 3 |
 | CNSPlots figures | Future optional plotting package | Phase 3 |
 | Manuscript and journal packaging | Separate downstream project | Do not couple to core |
 

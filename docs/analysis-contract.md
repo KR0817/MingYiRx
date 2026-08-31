@@ -45,3 +45,7 @@ Agreement across prespecified cut points supports the direction of an internal c
 ## Item and dose audit interpretation
 
 Dictionary coverage measures how much of the eligible source vocabulary was explicitly reviewed or mapped; it is not evidence that the canonical names are pharmacologically interchangeable. Dose-conflict counts identify visit-item cells with multiple distinct positive recorded dose-unit pairs after mapping. They describe unresolved source data and exclusion from dose-resolved estimands, not medication errors, unsafe prescribing, or inappropriate changes.
+
+## Combination interpretation
+
+Frequent pairs and triplets are patient-level first-prescription co-occurrences. Bootstrap stability means that a prevalence threshold is likely to be reselected under resampling of the same source cohort. Lift above one means co-occurrence exceeds the product of recorded marginal frequencies; it does not establish pharmacologic interaction, traditional compatibility, therapeutic necessity, mechanism, or effectiveness. Combination rows are descriptive candidates for replication and human review.
