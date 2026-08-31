@@ -10,18 +10,22 @@ from pathlib import Path
 
 from mingyirx.analysis import (
     PrescriptionVisit,
+    VisitBuildResult,
     _MatchedTransition,
     _binomial_survival_probability,
+    _clinical_patient_year_rows,
     _longitudinal_item_change_rows,
     _matched_control_distribution,
     _matched_reference_rows,
     _matched_sensitivity_rows,
+    analyze_clinical_phenotypes,
     transition_metrics,
 )
+from mingyirx.cohort import ClinicalPhenotypeCohortResult
 from mingyirx.config import ConfigError, load_config
 from mingyirx.dashboard import build_dashboard
-from mingyirx.io import InputError, read_sources
-from mingyirx.pipeline import run_pipeline, validate_pipeline
+from mingyirx.io import InputError, PatientDemographics, read_sources
+from mingyirx.pipeline import TABLE_FIELDS, run_pipeline, validate_pipeline
 from mingyirx.privacy import FORBIDDEN_PUBLIC_HEADERS, scan_public_outputs
 
 
@@ -38,11 +42,12 @@ class PipelineTests(unittest.TestCase):
         visit_date: date,
         items: set[str],
         physician_id: str = "D1",
+        group: str = "ra",
     ) -> PrescriptionVisit:
         doses = {item: (1.0, "g") for item in items}
         return PrescriptionVisit(
             patient_id=patient_id,
-            group="ra",
+            group=group,
             visit_id=visit_id,
             visit_date=visit_date,
             physician_id=physician_id,
@@ -310,6 +315,198 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(
             math.isclose(
                 float(rows[0]["mean_patient_transition_fraction"]), 2 / 3
+            )
+        )
+
+    def test_clinical_phenotypes_are_stratified_and_compared_after_suppression(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config_data = json.loads(CONFIG.read_text(encoding="utf-8"))
+            config_data["columns"].update(
+                {"sex": "sex", "birth_date": "birth_date"}
+            )
+            config_data["item_normalization"] = {
+                "version": "source-string-test",
+                "dictionary_path": None,
+                "expected_sha256": None,
+            }
+            config_data["clinical_phenotype_analysis"] = {
+                "enabled": True,
+                "other_exclude_patterns": ["\\bSLE\\b"],
+                "sex_categories": [
+                    {"name": "female", "label": "Female", "source_values": ["F"]},
+                    {"name": "male", "label": "Male", "source_values": ["M"]},
+                ],
+                "age_bands": [
+                    {"name": "under_40", "label": "<40", "min_age": 0, "max_age": 39},
+                    {"name": "40_59", "label": "40-59", "min_age": 40, "max_age": 59},
+                    {"name": "60_plus", "label": "60+", "min_age": 60, "max_age": 120},
+                ],
+            }
+            config_path = Path(temporary) / "clinical.json"
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+            config = load_config(config_path)
+
+        visits: dict[str, tuple[PrescriptionVisit, ...]] = {}
+        demographics: dict[str, PatientDemographics] = {}
+        groups = {
+            "ra": ("ra",),
+            "sjd": ("sjd",),
+            "ra__sjd": ("ra", "sjd"),
+        }
+        for group, prefix in (("ra", "R"), ("sjd", "S"), ("ra__sjd", "C")):
+            for index in range(1, 4):
+                patient_id = f"{prefix}{index}"
+                adds_item = index <= 2 or group == "ra__sjd"
+                visits[patient_id] = (
+                    self._visit(
+                        patient_id,
+                        f"{patient_id}V1",
+                        date(2020, 1, 1),
+                        {"A"},
+                        group=group,
+                    ),
+                    self._visit(
+                        patient_id,
+                        f"{patient_id}V2",
+                        date(2020, 2, 1),
+                        {"A", "B"} if adds_item else {"A"},
+                        group=group,
+                    ),
+                )
+                demographics[patient_id] = PatientDemographics(
+                    sex="female" if index <= 2 else "male",
+                    birth_date=date(1990, 1, 1) if index <= 2 else date(1950, 1, 1),
+                )
+
+        visit_result = VisitBuildResult(
+            visits_by_patient=visits,
+            dose_conflict_item_count=0,
+            dose_conflict_patients_by_group={},
+            dose_conflict_visits_by_group={},
+            dose_conflict_items_by_group={},
+            eligible_item_line_count=0,
+            ineligible_item_line_count=0,
+            group_mismatch_visit_count=0,
+            empty_eligible_visit_count=0,
+            dictionary_matched_item_line_count=0,
+            changed_item_line_count=0,
+            distinct_source_item_count=2,
+            dictionary_matched_source_item_count=0,
+            canonical_item_count=2,
+            canonical_collision_visit_item_count=0,
+            warnings=(),
+        )
+        cohort = ClinicalPhenotypeCohortResult(
+            patient_groups={patient: rows[0].group for patient, rows in visits.items()},
+            group_components=groups,
+            group_labels={
+                "ra": "RA",
+                "sjd": "SjD",
+                "ra__sjd": "RA + SjD",
+            },
+            group_counts={group: 3 for group in groups},
+            target_patients=9,
+            other_disease_excluded_patients=0,
+            warnings=(),
+        )
+        result = analyze_clinical_phenotypes(
+            visit_result, cohort, demographics, config
+        )
+        summary = result.tables["clinical_phenotype_summary"]
+        self.assertFalse(any(row["stratum"] == "male" for row in summary))
+        overall_difference = next(
+            row
+            for row in result.tables["clinical_item_change_comparison"]
+            if row["combination_group"] == "ra__sjd"
+            and row["single_group"] == "ra"
+            and row["stratum_type"] == "overall"
+            and row["item_name"] == "B"
+        )
+        self.assertTrue(
+            math.isclose(float(overall_difference["prevalence_difference"]), 1 / 3)
+        )
+        self.assertTrue(
+            math.isclose(
+                float(overall_difference["mean_transition_fraction_difference"]),
+                1 / 3,
+            )
+        )
+        self.assertEqual(overall_difference["higher_frequency"], "combination")
+
+        year_summary = result.tables["clinical_year_summary"]
+        self.assertTrue(
+            any(
+                row["group"] == "ra__sjd"
+                and row["stratum_type"] == "overall"
+                and row["year"] == 2020
+                and row["patients"] == 3
+                and row["transitions"] == 3
+                for row in year_summary
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "outputs"
+            run_pipeline(CONFIG, INPUT, output)
+            for table_name, rows in result.tables.items():
+                with (output / f"{table_name}.csv").open(
+                    "w", encoding="utf-8", newline=""
+                ) as handle:
+                    writer = csv.DictWriter(
+                        handle,
+                        fieldnames=TABLE_FIELDS[table_name],
+                        extrasaction="ignore",
+                    )
+                    writer.writeheader()
+                    writer.writerows(rows)
+            dashboard_path = output / "clinical_review.html"
+            dashboard = build_dashboard(output, dashboard_path, "Clinical test")
+            dashboard_text = dashboard_path.read_text(encoding="utf-8")
+            self.assertTrue(dashboard["clinical_mode"])
+            self.assertIn("同类历史处方参照", dashboard_text)
+            self.assertIn("年度处方演变", dashboard_text)
+
+    def test_patient_year_changes_are_assigned_to_the_later_visit_year(self) -> None:
+        visits = {
+            patient_id: (
+                self._visit(
+                    patient_id,
+                    f"{patient_id}V1",
+                    date(2020, 12, 20),
+                    {"A"},
+                ),
+                self._visit(
+                    patient_id,
+                    f"{patient_id}V2",
+                    date(2021, 1, 10),
+                    {"A", "B"},
+                ),
+            )
+            for patient_id in ("P1", "P2")
+        }
+        summary, items, changes = _clinical_patient_year_rows(
+            visits, ("ra",), 2
+        )
+        year_2020 = next(row for row in summary if row["year"] == 2020)
+        year_2021 = next(row for row in summary if row["year"] == 2021)
+        self.assertEqual(year_2020["repeat_patients"], 0)
+        self.assertEqual(year_2020["transitions"], 0)
+        self.assertEqual(year_2021["repeat_patients"], 2)
+        self.assertEqual(year_2021["transitions"], 2)
+        item_b = next(
+            row for row in items if row["year"] == 2021 and row["item_name"] == "B"
+        )
+        self.assertTrue(math.isclose(float(item_b["prevalence"]), 1.0))
+        addition_b = next(
+            row
+            for row in changes
+            if row["year"] == 2021
+            and row["item_name"] == "B"
+            and row["change_type"] == "addition"
+        )
+        self.assertTrue(
+            math.isclose(
+                float(addition_b["mean_patient_transition_fraction"]), 1.0
             )
         )
 

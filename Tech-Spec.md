@@ -151,6 +151,28 @@ The core package does not estimate communities or fit degree-distribution models
 
 `python -m mingyirx dashboard --input-dir OUTPUTS --output dashboard.html` reads public aggregate CSV files only and writes one self-contained HTML file. It does not open a server, accept raw uploads, read `run_manifest.json`, or expose patient-level records. The interface supports recorded-label group selection, item search, pair/triplet filtering, and historical addition/removal review. Every screen preserves the non-recommendation notice and gives the user access to denominators, calculation definitions, and known limitations.
 
+### Clinical phenotype and demographic layer
+
+The optional `clinical_phenotype_analysis` layer is separate from the frozen strict-group analysis. For every patient, it applies each configured target group's inclusion patterns to the complete diagnosis history while ignoring the target groups' mutual exclusions. It then forms the exact target-disease signature, such as RA only or RA plus Sjögren disease. A patient matching any configured `other_exclude_patterns` is excluded from this clinical layer. Signatures below `min_public_n` remain absent from public outputs; absence is not zero.
+
+For an assigned phenotype, a visit is eligible for this layer when its recorded diagnosis matches at least one component target disease and none of the other-disease exclusion patterns. This permits a longitudinal RA plus Sjögren phenotype to contribute visits labelled with either component without requiring both labels on every visit. It does not change the primary strict-group visit eligibility.
+
+Optional source columns `sex` and `birth_date` are resolved at the patient level. All nonblank values must agree across source rows; inconsistent, missing, or unmapped values remain unknown. Age is completed years at the first eligible prescription in the selected phenotype, then assigned to prespecified, non-overlapping age bands. Sex and age are descriptive strata, not inferred covariates.
+
+For every public phenotype and one-dimensional stratum (`overall`, configured sex category, or configured age band), the layer emits first-prescription item prevalence, stable pairs/triplets, patient-equal longitudinal summaries, and item-specific additions/removals. A stratum requires at least `min_public_n` analyzable patients. A longitudinal row requires at least `min_public_n` repeat patients, and an item direction requires at least `min_public_n` patients who experienced that direction.
+
+Combination-versus-single comparisons are made only between a multi-disease phenotype and each component single-disease phenotype within the same disclosed stratum. Both item-direction cells must independently pass `min_public_n`. Two estimands are retained: the difference in patients ever experiencing the direction and the difference in mean patient-level transition fractions. The latter is the primary ranking because it first divides each patient's change count by that patient's eligible transition count. Both are unadjusted descriptive differences, not tests, treatment rules, or estimates of comorbidity effect.
+
+### Patient-year evolution
+
+Annual composition uses one index prescription per patient-year: the earliest eligible prescription in that calendar year. Item prevalence is the number of patients whose annual index prescription contains the item divided by all patients with an eligible visit in that phenotype, stratum, and year. This prevents patients with more visits from contributing repeatedly to annual composition.
+
+Annual additions and removals assign each adjacent eligible transition to the calendar year of the later visit. Within each patient-year and direction, the item count is divided by that patient's eligible transition count in the year; public rows report both the fraction of repeat patients who experienced the direction and the mean of those patient-year fractions. The year, item-direction cell, and phenotype/stratum denominator must each satisfy the configured disclosure rules. A suppressed year or item is unavailable, not zero. Calendar patterns are unadjusted descriptions and may reflect case mix, documentation, availability, or follow-up intensity.
+
+### Local cohort-reference input
+
+The dashboard may accept diagnosis, source-mapped sex, and age as ephemeral browser state. Diagnosis selects one disclosed exact target-disease phenotype. Sex and age independently retrieve existing one-dimensional aggregate strata; age-band boundaries are emitted with the public phenotype summary. The browser does not persist, transmit, or append the input to any file. It must not combine sex and age into an unestimated joint stratum, score a patient, infer syndrome differentiation, recommend items or doses, or label the returned historical summaries as a prescription prediction.
+
 ## Privacy
 
 - Default `min_public_n=10`; configuration below 10 is rejected unless `synthetic_mode=true`.
@@ -175,6 +197,15 @@ python -m mingyirx run --config CONFIG --input CSV [--input CSV ...] --output DI
 - `longitudinal_summary.csv`
 - `transition_mode_summary.csv`
 - `longitudinal_item_change_tendency.csv`
+- `clinical_phenotype_summary.csv`
+- `clinical_first_prescription_item_prevalence.csv`
+- `clinical_frequent_item_combinations.csv`
+- `clinical_longitudinal_summary.csv`
+- `clinical_item_change_tendency.csv`
+- `clinical_item_change_comparison.csv`
+- `clinical_year_summary.csv`
+- `clinical_year_item_prevalence.csv`
+- `clinical_year_item_change_tendency.csv`
 - `cross_group_similarity.csv`
 - `temporal_stability.csv`
 - `temporal_cutpoint_sensitivity.csv`

@@ -14,6 +14,9 @@ This document maps public aggregate MingYiRx outputs and restricted local proven
 | Stable combinations | `frequent_item_combinations.csv` | `analysis.py` | Privacy-screened patient-level pairs and triplets retained under the prespecified support and reselection rules |
 | Patient-linked modification | `longitudinal_summary.csv`, `transition_mode_summary.csv` | `analysis.py` | Patient-equal adjacent-prescription continuity, addition, removal, dose-change, and modification burden |
 | Item-level modification direction | `longitudinal_item_change_tendency.csv` | `analysis.py` | Privacy-screened patient prevalence and patient-equal transition fraction for each recorded item added or removed during follow-up |
+| Clinical phenotype and demographics | `clinical_phenotype_summary.csv`, `clinical_first_prescription_item_prevalence.csv` | `cohort.py`, `analysis.py` | Descriptive exact target-disease signatures and separately disclosed sex or first-prescription age strata |
+| Combination-versus-single modification | `clinical_item_change_comparison.csv` | `analysis.py` | Unadjusted difference in patient prevalence and patient-equal transition frequency when both item-direction cells pass disclosure |
+| Patient-year evolution | `clinical_year_summary.csv`, `clinical_year_item_prevalence.csv`, `clinical_year_item_change_tendency.csv` | `analysis.py` | Annual index-prescription prevalence and later-visit-year change frequency after patient-year aggregation |
 | Constrained prescribing background | `matched_reference_summary.csv`, `matched_reference_sensitivity.csv` | `analysis.py` | Difference between patient-linked continuity and matched different-patient continuity under the fixed hierarchy |
 | Calendar-period stress test | `temporal_stability.csv`, `temporal_cutpoint_sensitivity.csv` | `analysis.py` | Internal stability across patient-disjoint periods and prespecified cut points |
 | Distributional cross-group comparison | `cross_group_similarity.csv` | `analysis.py` | Prevalence-weighted overlap and Jensen-Shannon distance over one public item universe |
@@ -30,6 +33,7 @@ This document maps public aggregate MingYiRx outputs and restricted local proven
 5. Compare it with the matched different-patient background and both matching restrictions.
 6. Report patient-disjoint temporal stability and the prespecified cut-point stress test.
 7. Present network and cross-group membership results last as exploratory structural analyses.
+8. Keep the optional clinical phenotype, demographic, and annual views in a secondary descriptive section unless they are prespecified as a separate manuscript aim.
 
 The manuscript should keep this order so that visual network findings cannot overshadow cohort validity, longitudinal estimands, or robustness checks.
 
@@ -43,6 +47,8 @@ The manuscript should keep this order so that visual network findings cannot ove
 | Positive within-minus-between continuity | Patient-linked continuity exceeded the constrained different-patient background | Individualized treatment benefit or causal personalization |
 | Similar direction across matching restrictions | Descriptive contrast was not created solely by the tested matching restrictions | Control of all confounding |
 | Similarity across time cut points | Internal calendar-period finding was directionally stable | External validation or unchanged clinical efficacy |
+| Combination-minus-single change difference | Higher recorded patient-equal change frequency in the disclosed combination phenotype | Comorbidity effect, interaction, indication, or treatment rule |
+| Annual item movement | Recorded annual composition or change frequency under the patient-year estimand | Effectiveness, quality improvement, disease progression, causal trend, or forecast |
 | Shared network member | Entered each thresholded public network | Universal core treatment or cross-disease mechanism |
 | Single-group network member | Entered only that group's primary public network at the configured thresholds | Disease specificity, contraindication elsewhere, or non-use elsewhere |
 | Network component or degree | Descriptive co-prescription structure or prominence | Syndrome, pharmacologic module, scale-free structure, or recommendation |
@@ -51,7 +57,7 @@ The manuscript should keep this order so that visual network findings cannot ove
 
 - Every reported number should be copied from a public CSV or `report.md`, never retyped from a figure.
 - Figure scripts must read public aggregate files only. The current optional network figures record input and artifact hashes in `network_figure_manifest.json`.
-- The optional clinical review dashboard reads the five named public aggregate tables only; its filters change presentation, not the underlying estimand or privacy threshold.
+- The optional clinical review dashboard reads five core and, when enabled, nine clinical public aggregate tables only; its controls change presentation or retrieve an existing one-dimensional stratum, not the estimand or privacy threshold.
 - A manuscript table should state the relevant denominator and whether patients, visits, or transitions are the analysis unit.
 - Threshold-dependent findings must report the primary threshold and the prespecified sensitivity range.
 - `NA` or suppressed cells must remain unavailable; they must not be reconstructed from other totals.

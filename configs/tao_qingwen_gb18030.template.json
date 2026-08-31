@@ -1,7 +1,7 @@
 {
   "project_id": "TQW_RHEUM_RX_CROSS_DISEASE_2026",
   "dataset_id": "TQW_RX_B133B194_CAEEAA0C",
-  "cohort_version": "v2.0.0-strict-three-disease-recorded-label-groups",
+  "cohort_version": "v3.0.0-strict-plus-comorbidity-demographic-views",
   "encoding": "gb18030",
   "synthetic_mode": false,
   "min_public_n": 10,
@@ -23,6 +23,8 @@
     "patient_id": 3,
     "visit_id": 4,
     "visit_date": 4,
+    "birth_date": 5,
+    "sex": 6,
     "diagnosis_text": 8,
     "item_name": 11,
     "dose": 15,
@@ -58,6 +60,21 @@
     "node_prevalence_thresholds": [0.15, 0.2, 0.25],
     "edge_cosine_thresholds": [0.4, 0.5, 0.6],
     "stability_probability": 0.8
+  },
+  "clinical_phenotype_analysis": {
+    "enabled": true,
+    "other_exclude_patterns": [
+      "系统性红斑狼疮|红斑狼疮|systemic\\s*lupus|\\bSLE\\b|系统性硬化(?:症)?|硬皮病|systemic\\s*sclerosis|scleroderma|多发性肌炎|皮肌炎|抗合成酶综合征|免疫介导坏死性肌病|polymyositis|dermatomyositis|antisynthetase|混合性?结缔组织病|未分化结缔组织病|结缔组织病|mixed\\s*connective\\s*tissue|undifferentiated\\s*connective\\s*tissue|\\bMCTD\\b|\\bUCTD\\b|\\bCTD\\b|抗磷脂综合征|antiphospholipid\\s*syndrome|\\bAPS\\b|重叠综合征|overlap\\s*syndrome"
+    ],
+    "sex_categories": [
+      {"name": "female", "label": "女性", "source_values": ["F"]},
+      {"name": "male", "label": "男性", "source_values": ["M"]}
+    ],
+    "age_bands": [
+      {"name": "under_40", "label": "＜40岁", "min_age": 0, "max_age": 39},
+      {"name": "40_59", "label": "40–59岁", "min_age": 40, "max_age": 59},
+      {"name": "60_plus", "label": "≥60岁", "min_age": 60, "max_age": 120}
+    ]
   },
   "groups": [
     {

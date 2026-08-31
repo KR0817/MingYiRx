@@ -8,10 +8,11 @@ import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
+from typing import Callable
 
 from .config import AnalysisConfig
-from .cohort import matches_group
-from .io import InputError, LineRecord, normalize_text
+from .cohort import ClinicalPhenotypeCohortResult, matches_group
+from .io import InputError, LineRecord, PatientDemographics, normalize_text
 
 
 DoseValue = tuple[float, str] | None
@@ -78,6 +79,7 @@ def build_visits(
     records: tuple[LineRecord, ...],
     patient_groups: dict[str, str],
     config: AnalysisConfig,
+    visit_matcher: Callable[[str, str], bool] | None = None,
 ) -> VisitBuildResult:
     visit_lines: dict[tuple[str, str], list[LineRecord]] = defaultdict(list)
     for record in records:
@@ -125,7 +127,12 @@ def build_visits(
             diagnosis_text = " | ".join(
                 sorted({line.diagnosis_text for line in lines if line.diagnosis_text})
             )
-            if not matches_group(diagnosis_text, group_rules[group_name]):
+            visit_matches = (
+                visit_matcher(group_name, diagnosis_text)
+                if visit_matcher is not None
+                else matches_group(diagnosis_text, group_rules[group_name])
+            )
+            if not visit_matches:
                 group_mismatch_visit_count += 1
                 continue
 
@@ -400,7 +407,9 @@ def _binomial_survival_probability(
 
 
 def _frequent_combination_rows(
-    first_visits: dict[str, PrescriptionVisit], config: AnalysisConfig
+    first_visits: dict[str, PrescriptionVisit],
+    config: AnalysisConfig,
+    group_names: tuple[str, ...] | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object], tuple[str, ...]]:
     combination_config = config.combination_analysis
     metadata: dict[str, object] = {
@@ -417,11 +426,10 @@ def _frequent_combination_rows(
     if not combination_config.enabled:
         return [], metadata, ()
 
-    group_order = {
-        group.name: index for index, group in enumerate(config.groups)
-    }
+    selected_groups = group_names or tuple(group.name for group in config.groups)
+    group_order = {group: index for index, group in enumerate(selected_groups)}
     group_visits: dict[str, list[PrescriptionVisit]] = {
-        group.name: [] for group in config.groups
+        group: [] for group in selected_groups
     }
     for visit in first_visits.values():
         group_visits[visit.group].append(visit)
@@ -1092,6 +1100,508 @@ def _longitudinal_item_change_rows(
         )
     )
     return rows
+
+
+def _age_on_date(birth_date: date, index_date: date) -> int | None:
+    age = index_date.year - birth_date.year - (
+        (index_date.month, index_date.day) < (birth_date.month, birth_date.day)
+    )
+    return age if 0 <= age <= 130 else None
+
+
+def _clinical_patient_year_rows(
+    visits_by_patient: dict[str, tuple[PrescriptionVisit, ...]],
+    group_names: tuple[str, ...],
+    min_public_n: int,
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+]:
+    group_year_patients: dict[tuple[str, int], set[str]] = defaultdict(set)
+    group_year_visits: Counter[tuple[str, int]] = Counter()
+    group_year_index_items: dict[tuple[str, int], Counter[str]] = defaultdict(Counter)
+    patient_year_changes: dict[
+        tuple[str, int], dict[str, dict[str, object]]
+    ] = defaultdict(dict)
+
+    for patient_id, visits in visits_by_patient.items():
+        if not visits:
+            continue
+        group = visits[0].group
+        visits_by_year: dict[int, list[PrescriptionVisit]] = defaultdict(list)
+        for visit in visits:
+            visits_by_year[visit.visit_date.year].append(visit)
+        for year, annual_visits in visits_by_year.items():
+            key = (group, year)
+            group_year_patients[key].add(patient_id)
+            group_year_visits[key] += len(annual_visits)
+            group_year_index_items[key].update(annual_visits[0].items)
+
+        for previous, current in itertools.pairwise(visits):
+            key = (group, current.visit_date.year)
+            patient_summary = patient_year_changes[key].setdefault(
+                patient_id,
+                {
+                    "transition_n": 0,
+                    "addition": Counter(),
+                    "removal": Counter(),
+                },
+            )
+            patient_summary["transition_n"] = int(
+                patient_summary["transition_n"]
+            ) + 1
+            addition_counts = patient_summary["addition"]
+            removal_counts = patient_summary["removal"]
+            if not isinstance(addition_counts, Counter) or not isinstance(
+                removal_counts, Counter
+            ):
+                raise TypeError("Patient-year change counters are invalid.")
+            addition_counts.update(current.items - previous.items)
+            removal_counts.update(previous.items - current.items)
+
+    group_order = {group: index for index, group in enumerate(group_names)}
+    public_group_years = {
+        key
+        for key, patients in group_year_patients.items()
+        if len(patients) >= min_public_n
+    }
+    summary_rows: list[dict[str, object]] = []
+    item_rows: list[dict[str, object]] = []
+    change_rows: list[dict[str, object]] = []
+
+    for group, year in sorted(
+        public_group_years, key=lambda key: (group_order[key[0]], key[1])
+    ):
+        key = (group, year)
+        patients = len(group_year_patients[key])
+        repeat_patients = len(patient_year_changes.get(key, {}))
+        repeat_public = repeat_patients == 0 or repeat_patients >= min_public_n
+        transitions = sum(
+            int(summary["transition_n"])
+            for summary in patient_year_changes.get(key, {}).values()
+        )
+        summary_rows.append(
+            {
+                "group": group,
+                "year": year,
+                "patients": patients,
+                "repeat_patients": repeat_patients if repeat_public else None,
+                "visits": group_year_visits[key],
+                "transitions": transitions if repeat_public else None,
+            }
+        )
+        for item, count in sorted(
+            group_year_index_items[key].items(),
+            key=lambda pair: (-pair[1], pair[0]),
+        ):
+            if count < min_public_n:
+                continue
+            item_rows.append(
+                {
+                    "group": group,
+                    "year": year,
+                    "item_name": item,
+                    "exposed_patients": count,
+                    "group_patients": patients,
+                    "prevalence": count / patients,
+                }
+            )
+
+        if not repeat_public or repeat_patients == 0:
+            continue
+        patient_summaries = patient_year_changes[key]
+        for change_type in ("addition", "removal"):
+            items = set().union(
+                *(
+                    summary[change_type].keys()
+                    for summary in patient_summaries.values()
+                    if isinstance(summary[change_type], Counter)
+                )
+            )
+            for item in items:
+                rates = []
+                for summary in patient_summaries.values():
+                    counts = summary[change_type]
+                    if not isinstance(counts, Counter):
+                        raise TypeError("Patient-year item counter is invalid.")
+                    rates.append(
+                        counts[item] / int(summary["transition_n"])
+                    )
+                patients_with_change = sum(rate > 0 for rate in rates)
+                if patients_with_change < min_public_n:
+                    continue
+                change_rows.append(
+                    {
+                        "group": group,
+                        "year": year,
+                        "item_name": item,
+                        "change_type": change_type,
+                        "repeat_patients": repeat_patients,
+                        "patients_with_change": patients_with_change,
+                        "patient_prevalence": patients_with_change
+                        / repeat_patients,
+                        "mean_patient_transition_fraction": statistics.fmean(
+                            rates
+                        ),
+                    }
+                )
+
+    change_rows.sort(
+        key=lambda row: (
+            group_order[str(row["group"])],
+            int(row["year"]),
+            str(row["change_type"]),
+            -float(row["mean_patient_transition_fraction"]),
+            str(row["item_name"]),
+        )
+    )
+    return summary_rows, item_rows, change_rows
+
+
+def analyze_clinical_phenotypes(
+    visit_result: VisitBuildResult,
+    cohort: ClinicalPhenotypeCohortResult,
+    demographics: dict[str, PatientDemographics],
+    config: AnalysisConfig,
+) -> AnalysisResult:
+    if not config.clinical_phenotype_analysis.enabled:
+        return AnalysisResult(tables={}, metadata={"enabled": False}, warnings=())
+
+    visits_by_patient = visit_result.visits_by_patient
+    group_position = {
+        group.name: index for index, group in enumerate(config.groups)
+    }
+    group_names = tuple(
+        sorted(
+            cohort.group_components,
+            key=lambda group: (
+                len(cohort.group_components[group]),
+                tuple(group_position[item] for item in cohort.group_components[group]),
+            ),
+        )
+    )
+    clinical = config.clinical_phenotype_analysis
+    patient_ages: dict[str, int] = {}
+    for patient_id, visits in visits_by_patient.items():
+        demographic = demographics.get(patient_id)
+        if demographic is None or demographic.birth_date is None or not visits:
+            continue
+        age = _age_on_date(demographic.birth_date, visits[0].visit_date)
+        if age is not None:
+            patient_ages[patient_id] = age
+
+    strata: list[tuple[str, str, str, set[str]]] = [
+        ("overall", "all", "All patients", set(visits_by_patient))
+    ]
+    for category, label in clinical.sex_labels.items():
+        strata.append(
+            (
+                "sex",
+                category,
+                label,
+                {
+                    patient_id
+                    for patient_id in visits_by_patient
+                    if demographics.get(patient_id) is not None
+                    and demographics[patient_id].sex == category
+                },
+            )
+        )
+    for band in clinical.age_bands:
+        strata.append(
+            (
+                "age_band",
+                band.name,
+                band.label,
+                {
+                    patient_id
+                    for patient_id, age in patient_ages.items()
+                    if band.min_age <= age <= band.max_age
+                },
+            )
+        )
+
+    summary_rows: list[dict[str, object]] = []
+    item_rows: list[dict[str, object]] = []
+    combination_rows: list[dict[str, object]] = []
+    longitudinal_rows: list[dict[str, object]] = []
+    change_rows: list[dict[str, object]] = []
+    year_summary_rows: list[dict[str, object]] = []
+    year_item_rows: list[dict[str, object]] = []
+    year_change_rows: list[dict[str, object]] = []
+
+    def context_fields(
+        group: str, stratum_type: str, stratum: str, stratum_label: str
+    ) -> dict[str, object]:
+        components = cohort.group_components[group]
+        return {
+            "group": group,
+            "group_label": cohort.group_labels[group],
+            "components": ";".join(components),
+            "disease_count": len(components),
+            "stratum_type": stratum_type,
+            "stratum": stratum,
+            "stratum_label": stratum_label,
+        }
+
+    for stratum_type, stratum, stratum_label, patient_ids in strata:
+        subset = {
+            patient_id: visits
+            for patient_id, visits in visits_by_patient.items()
+            if patient_id in patient_ids
+        }
+        first_visits = _first_visits(subset)
+        counts, prevalence, denominators = _prevalence(first_visits, group_names)
+        public_items, _ = _first_prescription_rows(
+            counts, prevalence, denominators, config.min_public_n
+        )
+        for row in public_items:
+            item_rows.append(
+                {
+                    **context_fields(
+                        str(row["group"]), stratum_type, stratum, stratum_label
+                    ),
+                    **{key: value for key, value in row.items() if key != "group"},
+                }
+            )
+
+        public_combinations, _, _ = _frequent_combination_rows(
+            first_visits, config, group_names
+        )
+        for row in public_combinations:
+            combination_rows.append(
+                {
+                    **context_fields(
+                        str(row["group"]), stratum_type, stratum, stratum_label
+                    ),
+                    **{key: value for key, value in row.items() if key != "group"},
+                }
+            )
+
+        stratum_longitudinal, _ = _longitudinal_rows(subset, group_names)
+        for row in stratum_longitudinal:
+            if int(row["repeat_patients"]) < config.min_public_n:
+                continue
+            longitudinal_rows.append(
+                {
+                    **context_fields(
+                        str(row["group"]), stratum_type, stratum, stratum_label
+                    ),
+                    **{key: value for key, value in row.items() if key != "group"},
+                }
+            )
+
+        stratum_changes = _longitudinal_item_change_rows(
+            subset, group_names, config.min_public_n
+        )
+        for row in stratum_changes:
+            change_rows.append(
+                {
+                    **context_fields(
+                        str(row["group"]), stratum_type, stratum, stratum_label
+                    ),
+                    **{key: value for key, value in row.items() if key != "group"},
+                }
+            )
+
+        (
+            stratum_year_summary,
+            stratum_year_items,
+            stratum_year_changes,
+        ) = _clinical_patient_year_rows(subset, group_names, config.min_public_n)
+        for destination, rows in (
+            (year_summary_rows, stratum_year_summary),
+            (year_item_rows, stratum_year_items),
+            (year_change_rows, stratum_year_changes),
+        ):
+            for row in rows:
+                destination.append(
+                    {
+                        **context_fields(
+                            str(row["group"]),
+                            stratum_type,
+                            stratum,
+                            stratum_label,
+                        ),
+                        **{
+                            key: value
+                            for key, value in row.items()
+                            if key != "group"
+                        },
+                    }
+                )
+
+        for row in _cohort_summary(subset, group_names):
+            group = str(row["group"])
+            patients = int(row["patients"])
+            if patients < config.min_public_n:
+                continue
+            group_patient_ids = [
+                patient_id
+                for patient_id, visits in subset.items()
+                if visits and visits[0].group == group
+            ]
+            ages = sorted(
+                patient_ages[patient_id]
+                for patient_id in group_patient_ids
+                if patient_id in patient_ages
+            )
+            age_public = len(ages) >= config.min_public_n
+            quartiles = (
+                statistics.quantiles(ages, n=4, method="inclusive")
+                if age_public and len(ages) >= 2
+                else (None, None, None)
+            )
+            repeat_patients = int(row["repeat_patients"])
+            repeat_public = repeat_patients == 0 or repeat_patients >= config.min_public_n
+            selected_age_band = next(
+                (
+                    band
+                    for band in clinical.age_bands
+                    if stratum_type == "age_band" and band.name == stratum
+                ),
+                None,
+            )
+            summary_rows.append(
+                {
+                    **context_fields(group, stratum_type, stratum, stratum_label),
+                    "patients": patients,
+                    "repeat_patients": repeat_patients if repeat_public else None,
+                    "visits": row["visits"],
+                    "transitions": row["transitions"] if repeat_public else None,
+                    "known_age_patients": len(ages) if age_public else None,
+                    "median_age": statistics.median(ages) if age_public else None,
+                    "age_q1": quartiles[0] if age_public else None,
+                    "age_q3": quartiles[2] if age_public else None,
+                    "age_min": (
+                        selected_age_band.min_age
+                        if selected_age_band is not None
+                        else None
+                    ),
+                    "age_max": (
+                        selected_age_band.max_age
+                        if selected_age_band is not None
+                        else None
+                    ),
+                }
+            )
+
+    change_index = {
+        (
+            str(row["group"]),
+            str(row["stratum_type"]),
+            str(row["stratum"]),
+            str(row["change_type"]),
+            str(row["item_name"]),
+        ): row
+        for row in change_rows
+    }
+    comparison_rows: list[dict[str, object]] = []
+    for combination_group in group_names:
+        components = cohort.group_components[combination_group]
+        if len(components) < 2:
+            continue
+        for single_group in components:
+            if single_group not in cohort.group_components:
+                continue
+            for key, combination_row in change_index.items():
+                group, stratum_type, stratum, change_type, item = key
+                if group != combination_group:
+                    continue
+                single_row = change_index.get(
+                    (single_group, stratum_type, stratum, change_type, item)
+                )
+                if single_row is None:
+                    continue
+                difference = float(combination_row["patient_prevalence"]) - float(
+                    single_row["patient_prevalence"]
+                )
+                frequency_difference = float(
+                    combination_row["mean_patient_transition_fraction"]
+                ) - float(single_row["mean_patient_transition_fraction"])
+                comparison_rows.append(
+                    {
+                        "combination_group": combination_group,
+                        "combination_label": cohort.group_labels[combination_group],
+                        "single_group": single_group,
+                        "single_label": cohort.group_labels[single_group],
+                        "stratum_type": stratum_type,
+                        "stratum": stratum,
+                        "stratum_label": combination_row["stratum_label"],
+                        "change_type": change_type,
+                        "item_name": item,
+                        "combination_repeat_patients": combination_row[
+                            "repeat_patients"
+                        ],
+                        "combination_patients_with_change": combination_row[
+                            "patients_with_change"
+                        ],
+                        "combination_prevalence": combination_row[
+                            "patient_prevalence"
+                        ],
+                        "single_repeat_patients": single_row["repeat_patients"],
+                        "single_patients_with_change": single_row[
+                            "patients_with_change"
+                        ],
+                        "single_prevalence": single_row["patient_prevalence"],
+                        "prevalence_difference": difference,
+                        "combination_mean_transition_fraction": combination_row[
+                            "mean_patient_transition_fraction"
+                        ],
+                        "single_mean_transition_fraction": single_row[
+                            "mean_patient_transition_fraction"
+                        ],
+                        "mean_transition_fraction_difference": frequency_difference,
+                        "higher_frequency": (
+                            "combination"
+                            if frequency_difference > 0
+                            else "single" if frequency_difference < 0 else "equal"
+                        ),
+                    }
+                )
+
+    comparison_rows.sort(
+        key=lambda row: (
+            group_names.index(str(row["combination_group"])),
+            group_names.index(str(row["single_group"])),
+            str(row["stratum_type"]),
+            str(row["stratum"]),
+            str(row["change_type"]),
+            -abs(float(row["mean_transition_fraction_difference"])),
+            str(row["item_name"]),
+        )
+    )
+    return AnalysisResult(
+        tables={
+            "clinical_phenotype_summary": summary_rows,
+            "clinical_first_prescription_item_prevalence": item_rows,
+            "clinical_frequent_item_combinations": combination_rows,
+            "clinical_longitudinal_summary": longitudinal_rows,
+            "clinical_item_change_tendency": change_rows,
+            "clinical_item_change_comparison": comparison_rows,
+            "clinical_year_summary": year_summary_rows,
+            "clinical_year_item_prevalence": year_item_rows,
+            "clinical_year_item_change_tendency": year_change_rows,
+        },
+        metadata={
+            "enabled": True,
+            "assigned_patients": len(cohort.patient_groups),
+            "analyzable_patients": len(visits_by_patient),
+            "target_patients": cohort.target_patients,
+            "other_disease_excluded_patients": (
+                cohort.other_disease_excluded_patients
+            ),
+            "phenotype_group_counts": cohort.group_counts,
+            "public_summary_rows": len(summary_rows),
+            "public_change_rows": len(change_rows),
+            "public_comparison_rows": len(comparison_rows),
+            "public_year_summary_rows": len(year_summary_rows),
+            "public_year_item_rows": len(year_item_rows),
+            "public_year_change_rows": len(year_change_rows),
+        },
+        warnings=cohort.warnings,
+    )
 
 
 def _cross_group_rows(

@@ -5,8 +5,8 @@ import hashlib
 import json
 import math
 import unicodedata
-from collections import Counter
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Sequence
@@ -28,6 +28,15 @@ class LineRecord:
     dose: float | None
     unit: str
     physician_id: str
+    sex_source: str = field(default="", compare=False)
+    birth_date: date | None = field(default=None, compare=False)
+    birth_date_invalid: bool = field(default=False, compare=False)
+
+
+@dataclass(frozen=True)
+class PatientDemographics:
+    sex: str | None
+    birth_date: date | None
 
 
 @dataclass(frozen=True)
@@ -53,6 +62,8 @@ class ReadResult:
     blank_diagnosis_count: int
     unresolved_dose_count: int
     source_files: tuple[SourceFileAudit, ...]
+    patient_demographics: dict[str, PatientDemographics]
+    demographic_audit: dict[str, int]
     warnings: tuple[str, ...]
 
 
@@ -197,6 +208,14 @@ def _read_one_source(
                 visit_date = _parse_date(visit_date_text, config.date_formats)
             except InputError as error:
                 raise InputError(f"{path.name}: row {row_number}: {error}") from error
+            birth_date_text = selected("birth_date")
+            birth_date: date | None = None
+            birth_date_invalid = False
+            if birth_date_text:
+                try:
+                    birth_date = _parse_date(birth_date_text, config.date_formats)
+                except InputError:
+                    birth_date_invalid = True
 
             records.append(
                 LineRecord(
@@ -208,6 +227,9 @@ def _read_one_source(
                     dose=dose,
                     unit=selected("unit"),
                     physician_id=selected("physician_id"),
+                    sex_source=selected("sex"),
+                    birth_date=birth_date,
+                    birth_date_invalid=birth_date_invalid,
                 )
             )
 
@@ -294,6 +316,53 @@ def read_sources(paths: Sequence[Path], config: AnalysisConfig) -> ReadResult:
         raise InputError("Row-count reconciliation failed")
 
     duplicate_line_count = sum(count - 1 for count in Counter(records).values() if count > 1)
+    patient_sex_values: dict[str, set[str]] = defaultdict(set)
+    patient_birth_values: dict[str, set[date]] = defaultdict(set)
+    invalid_birth_patients: set[str] = set()
+    all_patient_ids: set[str] = set()
+    for source_records in per_file_records:
+        for record in source_records:
+            all_patient_ids.add(record.patient_id)
+            if record.sex_source:
+                patient_sex_values[record.patient_id].add(
+                    record.sex_source.casefold()
+                )
+            if record.birth_date is not None:
+                patient_birth_values[record.patient_id].add(record.birth_date)
+            if record.birth_date_invalid:
+                invalid_birth_patients.add(record.patient_id)
+
+    patient_demographics: dict[str, PatientDemographics] = {}
+    audit_counts = Counter()
+    sex_mapping = config.clinical_phenotype_analysis.sex_value_to_category
+    for patient_id in all_patient_ids:
+        sex_values = patient_sex_values[patient_id]
+        if len(sex_values) == 1:
+            sex = sex_mapping.get(next(iter(sex_values)))
+            if sex is None:
+                audit_counts["sex_unmapped_patients"] += 1
+        else:
+            sex = None
+            audit_counts[
+                "sex_missing_patients" if not sex_values else "sex_inconsistent_patients"
+            ] += 1
+
+        birth_values = patient_birth_values[patient_id]
+        if patient_id in invalid_birth_patients:
+            birth_date = None
+            audit_counts["birth_unparseable_patients"] += 1
+        elif len(birth_values) == 1:
+            birth_date = next(iter(birth_values))
+        else:
+            birth_date = None
+            audit_counts[
+                "birth_missing_patients" if not birth_values else "birth_inconsistent_patients"
+            ] += 1
+        patient_demographics[patient_id] = PatientDemographics(
+            sex=sex,
+            birth_date=birth_date,
+        )
+
     warnings: list[str] = []
     if cross_file_overlap_rows_detected:
         action = (
@@ -312,6 +381,28 @@ def read_sources(paths: Sequence[Path], config: AnalysisConfig) -> ReadResult:
         warnings.append(
             f"{unresolved_dose_count} nonblank dose values could not be parsed as positive numbers"
         )
+    if config.clinical_phenotype_analysis.enabled and any(
+        audit_counts[key]
+        for key in (
+            "sex_missing_patients",
+            "sex_inconsistent_patients",
+            "sex_unmapped_patients",
+        )
+    ):
+        warnings.append(
+            "Some patients have missing, inconsistent, or unmapped sex values and remain unknown"
+        )
+    if config.clinical_phenotype_analysis.enabled and any(
+        audit_counts[key]
+        for key in (
+            "birth_missing_patients",
+            "birth_inconsistent_patients",
+            "birth_unparseable_patients",
+        )
+    ):
+        warnings.append(
+            "Some patients have missing, inconsistent, or unparseable birth dates and remain unknown"
+        )
 
     return ReadResult(
         records=tuple(records),
@@ -323,6 +414,8 @@ def read_sources(paths: Sequence[Path], config: AnalysisConfig) -> ReadResult:
         blank_diagnosis_count=blank_diagnosis_count,
         unresolved_dose_count=unresolved_dose_count,
         source_files=tuple(audits),
+        patient_demographics=patient_demographics,
+        demographic_audit=dict(audit_counts),
         warnings=tuple(warnings),
     )
 

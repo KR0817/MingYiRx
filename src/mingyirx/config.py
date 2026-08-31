@@ -74,6 +74,23 @@ class NetworkAnalysisConfig:
 
 
 @dataclass(frozen=True)
+class AgeBand:
+    name: str
+    label: str
+    min_age: int
+    max_age: int
+
+
+@dataclass(frozen=True)
+class ClinicalPhenotypeAnalysisConfig:
+    enabled: bool
+    other_exclude_patterns: tuple[str, ...]
+    sex_value_to_category: dict[str, str]
+    sex_labels: dict[str, str]
+    age_bands: tuple[AgeBand, ...]
+
+
+@dataclass(frozen=True)
 class AnalysisConfig:
     project_id: str
     dataset_id: str
@@ -96,6 +113,7 @@ class AnalysisConfig:
     matched_reference: MatchedReferenceConfig
     combination_analysis: CombinationAnalysisConfig
     network_analysis: NetworkAnalysisConfig
+    clinical_phenotype_analysis: ClinicalPhenotypeAnalysisConfig
 
 
 def _required_string(data: dict[str, Any], key: str) -> str:
@@ -463,6 +481,99 @@ def load_config(path: Path) -> AnalysisConfig:
         stability_probability=network_stability_probability,
     )
 
+    clinical_raw = raw.get("clinical_phenotype_analysis", {})
+    if not isinstance(clinical_raw, dict):
+        raise ConfigError("clinical_phenotype_analysis must be a JSON object")
+    clinical_enabled = bool(clinical_raw.get("enabled", False))
+    other_exclude_patterns = _string_list(
+        clinical_raw.get("other_exclude_patterns", []),
+        "clinical_phenotype_analysis.other_exclude_patterns",
+        allow_empty=True,
+    )
+    for pattern in other_exclude_patterns:
+        try:
+            re.compile(pattern, flags=re.IGNORECASE)
+        except re.error as error:
+            raise ConfigError(
+                f"Invalid clinical phenotype exclusion regular expression: {error}"
+            ) from error
+
+    sex_rows = clinical_raw.get("sex_categories", [])
+    if not isinstance(sex_rows, list):
+        raise ConfigError("clinical_phenotype_analysis.sex_categories must be a list")
+    sex_value_to_category: dict[str, str] = {}
+    sex_labels: dict[str, str] = {}
+    for index, row in enumerate(sex_rows):
+        if not isinstance(row, dict):
+            raise ConfigError(
+                f"clinical_phenotype_analysis.sex_categories[{index}] must be an object"
+            )
+        name = _required_string(row, "name")
+        if name in sex_labels:
+            raise ConfigError(f"Duplicate clinical sex category: {name}")
+        label = str(row.get("label", name)).strip() or name
+        source_values = _string_list(
+            row.get("source_values"),
+            f"clinical_phenotype_analysis.sex_categories[{index}].source_values",
+        )
+        sex_labels[name] = label
+        for value in source_values:
+            normalized = _normalize_dictionary_name(value).casefold()
+            if normalized in sex_value_to_category:
+                raise ConfigError(f"Duplicate clinical sex source value: {value}")
+            sex_value_to_category[normalized] = name
+
+    age_rows = clinical_raw.get("age_bands", [])
+    if not isinstance(age_rows, list):
+        raise ConfigError("clinical_phenotype_analysis.age_bands must be a list")
+    age_bands: list[AgeBand] = []
+    seen_age_names: set[str] = set()
+    for index, row in enumerate(age_rows):
+        if not isinstance(row, dict):
+            raise ConfigError(
+                f"clinical_phenotype_analysis.age_bands[{index}] must be an object"
+            )
+        name = _required_string(row, "name")
+        if name in seen_age_names:
+            raise ConfigError(f"Duplicate clinical age band: {name}")
+        seen_age_names.add(name)
+        min_age = int(row.get("min_age", 0))
+        max_age = int(row.get("max_age", 120))
+        if min_age < 0 or max_age > 130 or min_age > max_age:
+            raise ConfigError(
+                f"clinical_phenotype_analysis.age_bands[{index}] has invalid bounds"
+            )
+        age_bands.append(
+            AgeBand(
+                name=name,
+                label=str(row.get("label", name)).strip() or name,
+                min_age=min_age,
+                max_age=max_age,
+            )
+        )
+    age_bands.sort(key=lambda band: (band.min_age, band.max_age, band.name))
+    for left, right in zip(age_bands, age_bands[1:]):
+        if right.min_age <= left.max_age:
+            raise ConfigError("clinical_phenotype_analysis.age_bands cannot overlap")
+    if clinical_enabled:
+        missing_demographic_columns = {"sex", "birth_date"} - columns.keys()
+        if missing_demographic_columns:
+            raise ConfigError(
+                "Enabled clinical phenotype analysis requires column mappings: "
+                + ", ".join(sorted(missing_demographic_columns))
+            )
+        if not sex_value_to_category or not age_bands:
+            raise ConfigError(
+                "Enabled clinical phenotype analysis requires sex categories and age bands"
+            )
+    clinical_phenotype_analysis = ClinicalPhenotypeAnalysisConfig(
+        enabled=clinical_enabled,
+        other_exclude_patterns=other_exclude_patterns,
+        sex_value_to_category=sex_value_to_category,
+        sex_labels=sex_labels,
+        age_bands=tuple(age_bands),
+    )
+
     return AnalysisConfig(
         project_id=_required_string(raw, "project_id"),
         dataset_id=_required_string(raw, "dataset_id"),
@@ -489,4 +600,5 @@ def load_config(path: Path) -> AnalysisConfig:
         matched_reference=matched_reference,
         combination_analysis=combination_analysis,
         network_analysis=network_analysis,
+        clinical_phenotype_analysis=clinical_phenotype_analysis,
     )

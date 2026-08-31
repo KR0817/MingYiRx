@@ -46,6 +46,24 @@ An addition or removal row means that at least the configured public minimum num
 
 The interactive dashboard is a local cohort-review surface over public aggregate results. It does not accept an individual patient's symptoms, examination, laboratory data, comorbidities, allergies, current medicines, pregnancy status, or treatment response. Therefore it cannot generate a clinically complete or patient-specific prescription. Users must be able to inspect the cohort denominator, calculation basis, threshold, and uncertainty boundary without relying primarily on the visual ranking.
 
+## Comorbidity and demographic interpretation
+
+The clinical phenotype view uses exact combinations of the configured target disease labels over a patient's complete recorded diagnosis history. It is deliberately separate from the strict single-disease manuscript cohorts. A label such as RA plus Sjögren disease means both target strings were recorded and no configured other connective-tissue-disease exclusion was recorded; it does not establish classification-criteria validity, disease chronology, primary versus secondary Sjögren disease, or a biological overlap syndrome.
+
+Sex is the consistent mapped source value. Age is completed years at the first eligible prescription and is used only through prespecified bands. Missing or inconsistent demographics are not imputed. Public sex and age strata are one-dimensional descriptive views; comparing them does not adjust for case mix, calendar time, disease severity, visit frequency, indication, or other confounding.
+
+The combination-minus-single item-change comparison uses mutually exclusive recorded-label phenotypes. It reports both the fraction of repeat patients ever experiencing the direction and the mean patient-level transition fraction. The latter is the primary ordering because it reduces unequal follow-up opportunity, but it does not eliminate informative visit frequency or other confounding. A positive value means only that the recorded change was more frequent in the disclosed combination phenotype under that estimand. It cannot be described as a comorbidity effect, interaction, indication, contraindication, response marker, or recommendation. Rows absent because either side did not meet the direction-specific disclosure threshold must remain unavailable.
+
+## Patient-year evolution interpretation
+
+Annual composition counts each patient once per calendar year using that patient's first eligible prescription in the year. Annual addition/removal assigns an adjacent transition to the year of its later visit, calculates an item-specific fraction within each patient-year, and then averages those fractions across disclosed repeat patients. These definitions reduce domination by frequent attenders but do not make calendar-year cohorts exchangeable.
+
+Each year, item, direction, phenotype, and displayed demographic stratum remains subject to the public minimum. A missing point is suppressed or absent and must be rendered as unavailable rather than zero or interpolated. Annual movement may reflect changing case mix, record completeness, nomenclature, access, prescribing supply, or follow-up patterns; it is not evidence of effectiveness, quality improvement, disease evolution, or a causal prescribing trend.
+
+## Local cohort-reference input
+
+Diagnosis, sex, and age entered in the dashboard are local, transient lookup controls over already disclosed aggregate tables. They are not clinical features in a fitted prediction model. The sex and age views remain separate one-dimensional descriptions, so their results cannot be intersected, added, or interpreted as a personalized posterior probability. Returned frequent items and combinations are historical cohort summaries, not a generated formula, clinical recommendation, dose, contraindication check, or treatment plan.
+
 ## Temporal-cutpoint interpretation
 
 Agreement across prespecified cut points supports the direction of an internal calendar-period stability finding without treating one arbitrary year as decisive. It remains an internal data-drift stress test within the supplied record system, not external validation. Differences may reflect case mix, documentation, item availability, nomenclature, or practice changes and must not be labelled clinical deterioration or improvement.

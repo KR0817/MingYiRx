@@ -23,6 +23,7 @@ The original study is a reference case, not a dependency of this repository.
 | Data-to-paper evidence handoff | `docs/data-to-paper-workflow.md` and synthetic-data CI | Implemented in v0.10 without automatic claim generation |
 | Patient-equal item-level addition/removal tendency | `analysis.py` | Implemented in v0.11 with direction-specific public-patient suppression |
 | Local clinical review dashboard | `dashboard.py` | Implemented in v0.11 from public aggregate tables only; no raw upload or patient-specific recommendation |
+| Comorbidity, demographic, and patient-year clinical views | `cohort.py`, `analysis.py`, `dashboard.py` | Implemented in v0.12 as suppressed descriptive aggregates; local input retrieves history rather than predicting a prescription |
 | Manuscript and journal packaging | Separate downstream project | Do not couple to core |
 
 This split prevents physician-specific diagnosis strings, file paths, journal formatting, and publication decisions from contaminating the reusable analysis engine.

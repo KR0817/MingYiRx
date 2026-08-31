@@ -9,8 +9,20 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
-from .analysis import AnalysisResult, VisitBuildResult, analyze, build_visits
-from .cohort import CohortResult, assign_patient_groups
+from .analysis import (
+    AnalysisResult,
+    VisitBuildResult,
+    analyze,
+    analyze_clinical_phenotypes,
+    build_visits,
+)
+from .cohort import (
+    ClinicalPhenotypeCohortResult,
+    CohortResult,
+    assign_clinical_phenotypes,
+    assign_patient_groups,
+    matches_clinical_phenotype_visit,
+)
 from .config import AnalysisConfig, load_config
 from .io import InputError, ReadResult, file_sha256, read_sources
 from .privacy import PrivacyScan, scan_public_outputs
@@ -223,6 +235,153 @@ TABLE_FIELDS = {
         "patients_with_conflict_pct",
         "visits_with_conflict_pct",
     ],
+    "clinical_phenotype_summary": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "patients",
+        "repeat_patients",
+        "visits",
+        "transitions",
+        "known_age_patients",
+        "median_age",
+        "age_q1",
+        "age_q3",
+        "age_min",
+        "age_max",
+    ],
+    "clinical_first_prescription_item_prevalence": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "item_name",
+        "exposed_patients",
+        "group_patients",
+        "prevalence",
+    ],
+    "clinical_frequent_item_combinations": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "patients",
+        "combination_size",
+        "combination",
+        "support_patients",
+        "support",
+        "lift",
+        "bootstrap_core_selection_probability",
+        "stable_core_combination",
+    ],
+    "clinical_longitudinal_summary": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "repeat_patients",
+        "transitions",
+        "dose_resolved_patients",
+        "dose_resolved_transitions",
+        "median_patient_jaccard",
+        "median_patient_retention",
+        "median_patient_addition",
+        "median_patient_modification_burden",
+    ],
+    "clinical_item_change_tendency": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "item_name",
+        "change_type",
+        "repeat_patients",
+        "patients_with_change",
+        "patient_prevalence",
+        "mean_patient_transition_fraction",
+    ],
+    "clinical_item_change_comparison": [
+        "combination_group",
+        "combination_label",
+        "single_group",
+        "single_label",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "change_type",
+        "item_name",
+        "combination_repeat_patients",
+        "combination_patients_with_change",
+        "combination_prevalence",
+        "single_repeat_patients",
+        "single_patients_with_change",
+        "single_prevalence",
+        "prevalence_difference",
+        "combination_mean_transition_fraction",
+        "single_mean_transition_fraction",
+        "mean_transition_fraction_difference",
+        "higher_frequency",
+    ],
+    "clinical_year_summary": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "year",
+        "patients",
+        "repeat_patients",
+        "visits",
+        "transitions",
+    ],
+    "clinical_year_item_prevalence": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "year",
+        "item_name",
+        "exposed_patients",
+        "group_patients",
+        "prevalence",
+    ],
+    "clinical_year_item_change_tendency": [
+        "group",
+        "group_label",
+        "components",
+        "disease_count",
+        "stratum_type",
+        "stratum",
+        "stratum_label",
+        "year",
+        "item_name",
+        "change_type",
+        "repeat_patients",
+        "patients_with_change",
+        "patient_prevalence",
+        "mean_patient_transition_fraction",
+    ],
 }
 
 
@@ -234,6 +393,8 @@ class ValidationContext:
     read_result: ReadResult
     cohort_result: CohortResult
     visit_result: VisitBuildResult
+    clinical_cohort_result: ClinicalPhenotypeCohortResult | None
+    clinical_visit_result: VisitBuildResult | None
     gate: str
     warnings: tuple[str, ...]
 
@@ -274,7 +435,29 @@ def validate_pipeline(
     if not visit_result.visits_by_patient:
         raise InputError("No analyzable visits remain after cohort assignment")
 
-    warnings = (*read_result.warnings, *cohort_result.warnings, *visit_result.warnings)
+    clinical_cohort_result: ClinicalPhenotypeCohortResult | None = None
+    clinical_visit_result: VisitBuildResult | None = None
+    clinical_warnings: tuple[str, ...] = ()
+    if config.clinical_phenotype_analysis.enabled:
+        clinical_cohort_result = assign_clinical_phenotypes(read_result.records, config)
+        if clinical_cohort_result.patient_groups:
+            components = clinical_cohort_result.group_components
+            clinical_visit_result = build_visits(
+                read_result.records,
+                clinical_cohort_result.patient_groups,
+                config,
+                visit_matcher=lambda group, text: matches_clinical_phenotype_visit(
+                    text, components[group], config
+                ),
+            )
+        clinical_warnings = clinical_cohort_result.warnings
+
+    warnings = (
+        *read_result.warnings,
+        *cohort_result.warnings,
+        *visit_result.warnings,
+        *clinical_warnings,
+    )
     return ValidationContext(
         config_path=config_path,
         input_paths=resolved_input_paths,
@@ -282,6 +465,8 @@ def validate_pipeline(
         read_result=read_result,
         cohort_result=cohort_result,
         visit_result=visit_result,
+        clinical_cohort_result=clinical_cohort_result,
+        clinical_visit_result=clinical_visit_result,
         gate="PASS_WITH_WARNINGS" if warnings else "PASS",
         warnings=warnings,
     )
@@ -379,10 +564,37 @@ def _network_membership_summary_rows(
     ]
 
 
+def _top_clinical_comparison_rows(
+    rows: list[dict[str, object]], limit_per_direction: int = 5
+) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    counts: dict[tuple[str, str, str, str], int] = {}
+    for row in sorted(
+        rows,
+        key=lambda value: -abs(
+            float(value["mean_transition_fraction_difference"])
+        ),
+    ):
+        if row["stratum_type"] != "overall":
+            continue
+        key = (
+            str(row["combination_group"]),
+            str(row["single_group"]),
+            str(row["change_type"]),
+            str(row["higher_frequency"]),
+        )
+        if counts.get(key, 0) >= limit_per_direction:
+            continue
+        selected.append(row)
+        counts[key] = counts.get(key, 0) + 1
+    return selected
+
+
 def _write_report(
     path: Path,
     context: ValidationContext,
     analysis: AnalysisResult,
+    clinical_analysis: AnalysisResult,
 ) -> None:
     cohort_table = _markdown_table(
         analysis.tables["cohort_summary"], TABLE_FIELDS["cohort_summary"]
@@ -463,7 +675,89 @@ def _write_report(
         analysis.tables["dose_conflict_audit"],
         TABLE_FIELDS["dose_conflict_audit"],
     )
-    warning_lines = "\n".join(f"- {warning}" for warning in (*context.warnings, *analysis.warnings)) or "- None"
+    clinical_section = ""
+    if clinical_analysis.tables:
+        clinical_summary = _markdown_table(
+            [
+                row
+                for row in clinical_analysis.tables["clinical_phenotype_summary"]
+                if row["stratum_type"] == "overall"
+            ],
+            [
+                "group_label",
+                "disease_count",
+                "patients",
+                "repeat_patients",
+                "visits",
+                "transitions",
+                "median_age",
+                "age_q1",
+                "age_q3",
+            ],
+        )
+        clinical_comparisons = _markdown_table(
+            _top_clinical_comparison_rows(
+                clinical_analysis.tables["clinical_item_change_comparison"]
+            ),
+            [
+                "combination_label",
+                "single_label",
+                "change_type",
+                "item_name",
+                "combination_prevalence",
+                "single_prevalence",
+                "prevalence_difference",
+                "combination_mean_transition_fraction",
+                "single_mean_transition_fraction",
+                "mean_transition_fraction_difference",
+                "higher_frequency",
+            ],
+        )
+        clinical_years = _markdown_table(
+            [
+                row
+                for row in clinical_analysis.tables["clinical_year_summary"]
+                if row["stratum_type"] == "overall"
+            ],
+            [
+                "group_label",
+                "year",
+                "patients",
+                "repeat_patients",
+                "visits",
+                "transitions",
+            ],
+        )
+        clinical_section = f"""
+## Clinical comorbidity and demographic view
+
+This secondary view uses exact target-disease signatures and does not alter the strict single-disease cohorts above. Age is calculated at the first eligible prescription. Sex and age strata are descriptive and unadjusted.
+
+{clinical_summary}
+
+### Combination-versus-single item-change differences
+
+Only item directions that independently pass the public-patient threshold on both sides are shown. The primary ordering is the difference in mean patient-level transition fraction; patient prevalence is retained as context. Positive differences mean only higher recorded change frequency in the combination phenotype; they are not comorbidity effects or treatment rules.
+
+{clinical_comparisons}
+
+### Patient-year evolution coverage
+
+Each patient contributes one annual index prescription. Adjacent changes are assigned to the year of the later visit and averaged after calculating patient-year transition fractions. Suppressed cells are unavailable rather than zero.
+
+{clinical_years}
+"""
+    report_warnings = dict.fromkeys(
+        (
+            *context.warnings,
+            *analysis.warnings,
+            *clinical_analysis.warnings,
+        )
+    )
+    warning_lines = "\n".join(
+        f"- {warning}"
+        for warning in report_warnings
+    ) or "- None"
     report = f"""# MingYiRx analysis report
 
 **Gate:** `{context.gate if not analysis.warnings else 'PASS_WITH_WARNINGS'}`
@@ -522,6 +816,8 @@ Rows are patient-equal historical summaries. Each direction is shown only when a
 
 {longitudinal_item_change_table}
 
+{clinical_section}
+
 ## Matched same-clinician different-patient reference
 
 {matched_table}
@@ -566,19 +862,44 @@ def run_pipeline(
 ) -> dict[str, object]:
     context = validate_pipeline(config_path, input_paths)
     analysis = analyze(context.visit_result, context.config)
+    clinical_analysis = AnalysisResult(
+        tables={},
+        metadata={
+            "enabled": context.config.clinical_phenotype_analysis.enabled
+        },
+        warnings=(),
+    )
+    if (
+        context.clinical_cohort_result is not None
+        and context.clinical_visit_result is not None
+    ):
+        clinical_analysis = analyze_clinical_phenotypes(
+            context.clinical_visit_result,
+            context.clinical_cohort_result,
+            context.read_result.patient_demographics,
+            context.config,
+        )
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     generated_files: list[str] = []
-    for table_name, rows in analysis.tables.items():
+    for table_name, rows in {**analysis.tables, **clinical_analysis.tables}.items():
         filename = f"{table_name}.csv"
         _write_csv(output_dir / filename, TABLE_FIELDS[table_name], rows)
         generated_files.append(filename)
-    _write_report(output_dir / "report.md", context, analysis)
+    _write_report(output_dir / "report.md", context, analysis, clinical_analysis)
     generated_files.append("report.md")
 
     privacy_scan: PrivacyScan = scan_public_outputs(output_dir)
-    final_warnings = [*context.warnings, *analysis.warnings]
+    final_warnings = list(
+        dict.fromkeys(
+            (
+                *context.warnings,
+                *analysis.warnings,
+                *clinical_analysis.warnings,
+            )
+        )
+    )
     if privacy_scan.issues:
         final_warnings.extend(privacy_scan.issues)
     gate = "BLOCK" if privacy_scan.issues else (
@@ -677,6 +998,23 @@ def run_pipeline(
                     context.config.network_analysis.stability_probability
                 ),
             },
+            "clinical_phenotype_analysis": {
+                "enabled": context.config.clinical_phenotype_analysis.enabled,
+                "other_exclude_patterns": len(
+                    context.config.clinical_phenotype_analysis.other_exclude_patterns
+                ),
+                "sex_categories": list(
+                    context.config.clinical_phenotype_analysis.sex_labels
+                ),
+                "age_bands": [
+                    {
+                        "name": band.name,
+                        "min_age": band.min_age,
+                        "max_age": band.max_age,
+                    }
+                    for band in context.config.clinical_phenotype_analysis.age_bands
+                ],
+            },
         },
         "cohort_flow": {
             "source_patients": context.cohort_result.total_patients,
@@ -686,6 +1024,8 @@ def run_pipeline(
             "group_counts": context.cohort_result.group_counts,
         },
         "analysis": analysis.metadata,
+        "clinical_phenotype_analysis": clinical_analysis.metadata,
+        "demographic_quality": context.read_result.demographic_audit,
         "eligibility_flow": {
             "require_visit_group_match": context.config.require_visit_group_match,
             "group_mismatch_visits_excluded": (
@@ -709,6 +1049,24 @@ def run_pipeline(
                 context.visit_result.dose_conflict_item_count
             ),
         },
+        "clinical_phenotype_eligibility_flow": (
+            {
+                "group_mismatch_visits_excluded": (
+                    context.clinical_visit_result.group_mismatch_visit_count
+                ),
+                "eligible_item_lines": (
+                    context.clinical_visit_result.eligible_item_line_count
+                ),
+                "ineligible_item_lines_excluded": (
+                    context.clinical_visit_result.ineligible_item_line_count
+                ),
+                "visits_without_eligible_items_excluded": (
+                    context.clinical_visit_result.empty_eligible_visit_count
+                ),
+            }
+            if context.clinical_visit_result is not None
+            else None
+        ),
         "privacy_scan": {
             "files_scanned": privacy_scan.files_scanned,
             "issues": list(privacy_scan.issues),
