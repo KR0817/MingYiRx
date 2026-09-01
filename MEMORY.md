@@ -124,3 +124,12 @@
 
 - The private repository is `https://github.com/KR0817/MingYiRx` and the local remote name is `origin` with HTTPS fetch/push URLs.
 - The repository was created successfully, but the initial `main` push did not complete because Git HTTPS connections to `github.com:443` timed out or reset. GitHub API access remained available, confirming repository creation and private visibility. No force push or history rewrite was attempted.
+
+## 2026-09-02 — Version 0.13.0 historical gram-dose summaries verified
+
+- First-prescription, item-level addition/removal, clinical combination-versus-single, and patient-year item tables now carry separately gated `dose_patients`, median, and inclusive-IQR fields for explicitly recorded `g` values. No unit conversion or imputation is performed.
+- First-prescription doses use one observation per exposed patient. Addition doses come from the current visit and removal doses from the previous visit; repeated events are reduced to a patient median before group aggregation, and annual changes first reduce within patient-year.
+- The clinical dashboard shows historical gram-dose summaries in the trajectory, common-item, combination-constituent, local-reference, comparison, change, and annual views. The interface explicitly separates historical recorded dose from any recommended or patient-specific dose.
+- The real source mapping uses the `ONCE_DOSE` and `ONCE_UNIT` columns. All resolved values in the audited clinical visit layer were already recorded as `g`; unresolved or conflicting visit-item cells remain excluded from dose summaries.
+- All seven pre-v0.13 non-dose table projections retained identical row counts and hashes. Nineteen synthetic tests passed, all disclosed dose cells had at least 10 patients and ordered quartiles, the real run remained `PASS_WITH_WARNINGS` with zero privacy issues, and two consecutive runs produced identical hashes for all 28 public artifacts plus the self-contained dashboard.
+- Local `file://` browser automation remains blocked, so verification used deterministic output hashes, JavaScript syntax checking, static responsive-structure review, and the existing synthetic dashboard tests rather than a new automated pixel-level browser render.

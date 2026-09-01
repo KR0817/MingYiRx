@@ -319,6 +319,39 @@ def _mean(values: list[float]) -> float | None:
     return statistics.fmean(values) if values else None
 
 
+def _gram_dose(visit: PrescriptionVisit, item: str) -> float | None:
+    """Return an explicitly recorded gram dose without converting units."""
+    dose = visit.doses.get(item)
+    if dose is None:
+        return None
+    value, unit = dose
+    return value if unit.casefold() == "g" else None
+
+
+def _dose_summary(
+    values: list[float], min_public_n: int
+) -> dict[str, int | float | None]:
+    """Summarize patient-level gram doses only when the dose cell is public."""
+    if len(values) < min_public_n:
+        return {
+            "dose_patients": None,
+            "median_dose_g": None,
+            "dose_q1_g": None,
+            "dose_q3_g": None,
+        }
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        q1 = q3 = ordered[0]
+    else:
+        q1, _, q3 = statistics.quantiles(ordered, n=4, method="inclusive")
+    return {
+        "dose_patients": len(ordered),
+        "median_dose_g": statistics.median(ordered),
+        "dose_q1_g": q1,
+        "dose_q3_g": q3,
+    }
+
+
 def _weighted_jaccard(left: dict[str, float], right: dict[str, float], items: set[str]) -> float | None:
     if not items:
         return None
@@ -937,8 +970,16 @@ def _first_prescription_rows(
     counts: dict[str, Counter[str]],
     prevalence: dict[str, dict[str, float]],
     denominators: dict[str, int],
+    first_visits: dict[str, PrescriptionVisit],
     min_public_n: int,
 ) -> tuple[list[dict[str, object]], int]:
+    doses_by_group_item: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for visit in first_visits.values():
+        for item in visit.items:
+            dose = _gram_dose(visit, item)
+            if dose is not None:
+                doses_by_group_item[(visit.group, item)].append(dose)
+
     rows: list[dict[str, object]] = []
     suppressed = 0
     for group, item_counts in counts.items():
@@ -953,6 +994,9 @@ def _first_prescription_rows(
                     "exposed_patients": count,
                     "group_patients": denominators[group],
                     "prevalence": prevalence[group][item],
+                    **_dose_summary(
+                        doses_by_group_item[(group, item)], min_public_n
+                    ),
                 }
             )
     return rows, suppressed
@@ -1041,7 +1085,7 @@ def _longitudinal_item_change_rows(
     group_names: tuple[str, ...],
     min_public_n: int,
 ) -> list[dict[str, object]]:
-    patient_changes: dict[str, list[dict[str, dict[str, float]]]] = {
+    patient_changes: dict[str, list[dict[str, object]]] = {
         group: [] for group in group_names
     }
     for visits in visits_by_patient.values():
@@ -1050,9 +1094,21 @@ def _longitudinal_item_change_rows(
         transition_n = len(visits) - 1
         added_counts: Counter[str] = Counter()
         removed_counts: Counter[str] = Counter()
+        added_doses: dict[str, list[float]] = defaultdict(list)
+        removed_doses: dict[str, list[float]] = defaultdict(list)
         for previous, current in itertools.pairwise(visits):
-            added_counts.update(current.items - previous.items)
-            removed_counts.update(previous.items - current.items)
+            added = current.items - previous.items
+            removed = previous.items - current.items
+            added_counts.update(added)
+            removed_counts.update(removed)
+            for item in added:
+                dose = _gram_dose(current, item)
+                if dose is not None:
+                    added_doses[item].append(dose)
+            for item in removed:
+                dose = _gram_dose(previous, item)
+                if dose is not None:
+                    removed_doses[item].append(dose)
         patient_changes[visits[0].group].append(
             {
                 "addition": {
@@ -1060,6 +1116,14 @@ def _longitudinal_item_change_rows(
                 },
                 "removal": {
                     item: count / transition_n for item, count in removed_counts.items()
+                },
+                "addition_doses": {
+                    item: statistics.median(values)
+                    for item, values in added_doses.items()
+                },
+                "removal_doses": {
+                    item: statistics.median(values)
+                    for item, values in removed_doses.items()
                 },
             }
         )
@@ -1072,13 +1136,28 @@ def _longitudinal_item_change_rows(
         repeat_patients = len(summaries)
         for change_type in direction_order:
             items = set().union(
-                *(summary[change_type].keys() for summary in summaries)
+                *(
+                    summary[change_type].keys()
+                    for summary in summaries
+                    if isinstance(summary[change_type], dict)
+                )
             )
             for item in items:
-                rates = [summary[change_type].get(item, 0.0) for summary in summaries]
+                rates = [
+                    float(summary[change_type].get(item, 0.0))
+                    for summary in summaries
+                    if isinstance(summary[change_type], dict)
+                ]
                 patients_with_change = sum(rate > 0 for rate in rates)
                 if patients_with_change < min_public_n:
                     continue
+                dose_key = f"{change_type}_doses"
+                patient_doses = [
+                    float(summary[dose_key][item])
+                    for summary in summaries
+                    if isinstance(summary[dose_key], dict)
+                    and item in summary[dose_key]
+                ]
                 rows.append(
                     {
                         "group": group,
@@ -1088,6 +1167,7 @@ def _longitudinal_item_change_rows(
                         "patients_with_change": patients_with_change,
                         "patient_prevalence": patients_with_change / repeat_patients,
                         "mean_patient_transition_fraction": statistics.fmean(rates),
+                        **_dose_summary(patient_doses, min_public_n),
                     }
                 )
     rows.sort(
@@ -1121,6 +1201,9 @@ def _clinical_patient_year_rows(
     group_year_patients: dict[tuple[str, int], set[str]] = defaultdict(set)
     group_year_visits: Counter[tuple[str, int]] = Counter()
     group_year_index_items: dict[tuple[str, int], Counter[str]] = defaultdict(Counter)
+    group_year_index_doses: dict[
+        tuple[str, int], dict[str, list[float]]
+    ] = defaultdict(lambda: defaultdict(list))
     patient_year_changes: dict[
         tuple[str, int], dict[str, dict[str, object]]
     ] = defaultdict(dict)
@@ -1136,7 +1219,12 @@ def _clinical_patient_year_rows(
             key = (group, year)
             group_year_patients[key].add(patient_id)
             group_year_visits[key] += len(annual_visits)
-            group_year_index_items[key].update(annual_visits[0].items)
+            annual_index = annual_visits[0]
+            group_year_index_items[key].update(annual_index.items)
+            for item in annual_index.items:
+                dose = _gram_dose(annual_index, item)
+                if dose is not None:
+                    group_year_index_doses[key][item].append(dose)
 
         for previous, current in itertools.pairwise(visits):
             key = (group, current.visit_date.year)
@@ -1146,6 +1234,8 @@ def _clinical_patient_year_rows(
                     "transition_n": 0,
                     "addition": Counter(),
                     "removal": Counter(),
+                    "addition_doses": defaultdict(list),
+                    "removal_doses": defaultdict(list),
                 },
             )
             patient_summary["transition_n"] = int(
@@ -1159,6 +1249,20 @@ def _clinical_patient_year_rows(
                 raise TypeError("Patient-year change counters are invalid.")
             addition_counts.update(current.items - previous.items)
             removal_counts.update(previous.items - current.items)
+            addition_doses = patient_summary["addition_doses"]
+            removal_doses = patient_summary["removal_doses"]
+            if not isinstance(addition_doses, defaultdict) or not isinstance(
+                removal_doses, defaultdict
+            ):
+                raise TypeError("Patient-year dose collections are invalid.")
+            for item in current.items - previous.items:
+                dose = _gram_dose(current, item)
+                if dose is not None:
+                    addition_doses[item].append(dose)
+            for item in previous.items - current.items:
+                dose = _gram_dose(previous, item)
+                if dose is not None:
+                    removal_doses[item].append(dose)
 
     group_order = {group: index for index, group in enumerate(group_names)}
     public_group_years = {
@@ -1205,6 +1309,9 @@ def _clinical_patient_year_rows(
                     "exposed_patients": count,
                     "group_patients": patients,
                     "prevalence": count / patients,
+                    **_dose_summary(
+                        group_year_index_doses[key][item], min_public_n
+                    ),
                 }
             )
 
@@ -1231,6 +1338,16 @@ def _clinical_patient_year_rows(
                 patients_with_change = sum(rate > 0 for rate in rates)
                 if patients_with_change < min_public_n:
                     continue
+                dose_key = f"{change_type}_doses"
+                patient_doses: list[float] = []
+                for summary in patient_summaries.values():
+                    dose_values = summary[dose_key]
+                    if not isinstance(dose_values, defaultdict):
+                        raise TypeError("Patient-year dose collection is invalid.")
+                    if dose_values.get(item):
+                        patient_doses.append(
+                            statistics.median(dose_values[item])
+                        )
                 change_rows.append(
                     {
                         "group": group,
@@ -1244,6 +1361,7 @@ def _clinical_patient_year_rows(
                         "mean_patient_transition_fraction": statistics.fmean(
                             rates
                         ),
+                        **_dose_summary(patient_doses, min_public_n),
                     }
                 )
 
@@ -1354,7 +1472,7 @@ def analyze_clinical_phenotypes(
         first_visits = _first_visits(subset)
         counts, prevalence, denominators = _prevalence(first_visits, group_names)
         public_items, _ = _first_prescription_rows(
-            counts, prevalence, denominators, config.min_public_n
+            counts, prevalence, denominators, first_visits, config.min_public_n
         )
         for row in public_items:
             item_rows.append(
@@ -1553,6 +1671,18 @@ def analyze_clinical_phenotypes(
                             "mean_patient_transition_fraction"
                         ],
                         "mean_transition_fraction_difference": frequency_difference,
+                        "combination_dose_patients": combination_row[
+                            "dose_patients"
+                        ],
+                        "combination_median_dose_g": combination_row[
+                            "median_dose_g"
+                        ],
+                        "combination_dose_q1_g": combination_row["dose_q1_g"],
+                        "combination_dose_q3_g": combination_row["dose_q3_g"],
+                        "single_dose_patients": single_row["dose_patients"],
+                        "single_median_dose_g": single_row["median_dose_g"],
+                        "single_dose_q1_g": single_row["dose_q1_g"],
+                        "single_dose_q3_g": single_row["dose_q3_g"],
                         "higher_frequency": (
                             "combination"
                             if frequency_difference > 0
@@ -2226,7 +2356,7 @@ def analyze(visit_result: VisitBuildResult, config: AnalysisConfig) -> AnalysisR
     first_visits = _first_visits(visits_by_patient)
     counts, prevalence, denominators = _prevalence(first_visits, group_names)
     first_rows, suppressed = _first_prescription_rows(
-        counts, prevalence, denominators, config.min_public_n
+        counts, prevalence, denominators, first_visits, config.min_public_n
     )
     longitudinal_rows, mode_rows = _longitudinal_rows(visits_by_patient, group_names)
     longitudinal_item_change_rows = _longitudinal_item_change_rows(

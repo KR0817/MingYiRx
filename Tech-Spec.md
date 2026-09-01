@@ -90,6 +90,14 @@ For every repeat patient and item, count the adjacent transitions in which the i
 
 Each row reports the number and fraction of repeat patients with at least one qualifying change, plus the mean patient-level transition fraction across all repeat patients. Added and removed directions are separate rows; an absent direction means not reportable under the privacy threshold, not zero occurrence. The estimand describes historical recorded modification, not an instruction to add or remove an item for a current patient.
 
+### Recorded gram-dose summaries
+
+Dose summaries accept only a resolved positive dose whose source unit is explicitly `g`; the pipeline does not convert, infer, or impute units. For each public first-prescription item, one dose per exposed patient contributes to the median and inclusive IQR. A dose summary is disclosed only when at least `min_public_n` exposed patients have a resolved gram value; otherwise `dose_patients`, `median_dose_g`, `dose_q1_g`, and `dose_q3_g` are all null even when the item-prevalence row remains public.
+
+For item additions, the dose comes from the current prescription; for removals, it comes from the previous prescription. Repeated events are first reduced to one median dose per patient and item-direction, then summarized across patients. Patient-year changes use the same rule within each patient-year before annual group aggregation. This preserves patient-equal weighting and separates dose missingness from whether the composition change occurred.
+
+Combination cards reuse each constituent item's first-prescription dose summary in the same phenotype and stratum; they do not estimate a combination-specific dose. Combination-versus-single rows carry the already disclosed group-specific change-dose summaries without calculating a causal or inferential dose difference. Every dose value is historical and descriptive, never a recommended, optimal, or patient-specific dose.
+
 ### Matched different-patient reference
 
 For every adjacent eligible transition, compare the previous prescription with candidate current prescriptions from other patients. Control visits must be second or later eligible visits and share clinician, recorded-label group, and calendar year. Matching proceeds through a fixed hierarchy:
@@ -149,7 +157,7 @@ The core package does not estimate communities or fit degree-distribution models
 
 ## Local clinical review dashboard
 
-`python -m mingyirx dashboard --input-dir OUTPUTS --output dashboard.html` reads public aggregate CSV files only and writes one self-contained HTML file. It does not open a server, accept raw uploads, read `run_manifest.json`, or expose patient-level records. The interface supports recorded-label group selection, item search, pair/triplet filtering, and historical addition/removal review. Every screen preserves the non-recommendation notice and gives the user access to denominators, calculation definitions, and known limitations.
+`python -m mingyirx dashboard --input-dir OUTPUTS --output dashboard.html` reads public aggregate CSV files only and writes one self-contained HTML file. It does not open a server, accept raw uploads, read `run_manifest.json`, or expose patient-level records. The interface supports recorded-label group selection, item search, pair/triplet filtering, historical addition/removal review, and disclosed historical gram-dose summaries. Every screen preserves the non-recommendation notice and gives the user access to denominators, calculation definitions, and known limitations.
 
 ### Clinical phenotype and demographic layer
 
@@ -171,7 +179,7 @@ Annual additions and removals assign each adjacent eligible transition to the ca
 
 ### Local cohort-reference input
 
-The dashboard may accept diagnosis, source-mapped sex, and age as ephemeral browser state. Diagnosis selects one disclosed exact target-disease phenotype. Sex and age independently retrieve existing one-dimensional aggregate strata; age-band boundaries are emitted with the public phenotype summary. The browser does not persist, transmit, or append the input to any file. It must not combine sex and age into an unestimated joint stratum, score a patient, infer syndrome differentiation, recommend items or doses, or label the returned historical summaries as a prescription prediction.
+The dashboard may accept diagnosis, source-mapped sex, and age as ephemeral browser state. Diagnosis selects one disclosed exact target-disease phenotype. Sex and age independently retrieve existing one-dimensional aggregate strata; age-band boundaries are emitted with the public phenotype summary. The browser does not persist, transmit, or append the input to any file. It must not combine sex and age into an unestimated joint stratum, score a patient, infer syndrome differentiation, recommend items or doses, or label the returned historical summaries as a prescription prediction. A displayed gram value is the selected cohort/stratum's thresholded historical median, not a generated dose.
 
 ## Privacy
 

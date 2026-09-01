@@ -10,13 +10,13 @@ This document maps public aggregate MingYiRx outputs and restricted local proven
 |---|---|---|---|
 | Cohort flow | `cohort_summary.csv`, `run_manifest.json` | `config.py`, `cohort.py`, `pipeline.py` | Counts of source, excluded, assigned, first-prescription, and repeat patients under the frozen recorded-label rules |
 | Source and terminology quality | `item_normalization_audit.csv`, `dose_conflict_audit.csv` | `io.py`, `analysis.py` | Dictionary coverage and unresolved recorded dose conflicts |
-| First-prescription structure | `first_prescription_item_prevalence.csv` | `analysis.py` | Patient-level exposure prevalence in each recorded-label group |
+| First-prescription structure | `first_prescription_item_prevalence.csv` | `analysis.py` | Patient-level exposure prevalence plus separately gated historical gram-dose median and IQR in each recorded-label group |
 | Stable combinations | `frequent_item_combinations.csv` | `analysis.py` | Privacy-screened patient-level pairs and triplets retained under the prespecified support and reselection rules |
-| Patient-linked modification | `longitudinal_summary.csv`, `transition_mode_summary.csv` | `analysis.py` | Patient-equal adjacent-prescription continuity, addition, removal, dose-change, and modification burden |
+| Patient-linked modification | `longitudinal_summary.csv`, `transition_mode_summary.csv`, `longitudinal_item_change_tendency.csv` | `analysis.py` | Patient-equal adjacent-prescription continuity, addition, removal, dose-change, modification burden, and per-item change-event gram-dose summaries |
 | Item-level modification direction | `longitudinal_item_change_tendency.csv` | `analysis.py` | Privacy-screened patient prevalence and patient-equal transition fraction for each recorded item added or removed during follow-up |
 | Clinical phenotype and demographics | `clinical_phenotype_summary.csv`, `clinical_first_prescription_item_prevalence.csv` | `cohort.py`, `analysis.py` | Descriptive exact target-disease signatures and separately disclosed sex or first-prescription age strata |
-| Combination-versus-single modification | `clinical_item_change_comparison.csv` | `analysis.py` | Unadjusted difference in patient prevalence and patient-equal transition frequency when both item-direction cells pass disclosure |
-| Patient-year evolution | `clinical_year_summary.csv`, `clinical_year_item_prevalence.csv`, `clinical_year_item_change_tendency.csv` | `analysis.py` | Annual index-prescription prevalence and later-visit-year change frequency after patient-year aggregation |
+| Combination-versus-single modification | `clinical_item_change_comparison.csv` | `analysis.py` | Unadjusted difference in patient prevalence and patient-equal transition frequency, with each side's separately gated historical gram-dose summary |
+| Patient-year evolution | `clinical_year_summary.csv`, `clinical_year_item_prevalence.csv`, `clinical_year_item_change_tendency.csv` | `analysis.py` | Annual index-prescription prevalence, later-visit-year change frequency, and separately gated gram-dose summaries after patient-year aggregation |
 | Constrained prescribing background | `matched_reference_summary.csv`, `matched_reference_sensitivity.csv` | `analysis.py` | Difference between patient-linked continuity and matched different-patient continuity under the fixed hierarchy |
 | Calendar-period stress test | `temporal_stability.csv`, `temporal_cutpoint_sensitivity.csv` | `analysis.py` | Internal stability across patient-disjoint periods and prespecified cut points |
 | Distributional cross-group comparison | `cross_group_similarity.csv` | `analysis.py` | Prevalence-weighted overlap and Jensen-Shannon distance over one public item universe |
@@ -34,6 +34,7 @@ This document maps public aggregate MingYiRx outputs and restricted local proven
 6. Report patient-disjoint temporal stability and the prespecified cut-point stress test.
 7. Present network and cross-group membership results last as exploratory structural analyses.
 8. Keep the optional clinical phenotype, demographic, and annual views in a secondary descriptive section unless they are prespecified as a separate manuscript aim.
+9. Report historical gram-dose medians with IQR and dose-resolved patient counts only; state that values were not converted or imputed and do not call them recommended doses.
 
 The manuscript should keep this order so that visual network findings cannot overshadow cohort validity, longitudinal estimands, or robustness checks.
 
@@ -49,6 +50,7 @@ The manuscript should keep this order so that visual network findings cannot ove
 | Similarity across time cut points | Internal calendar-period finding was directionally stable | External validation or unchanged clinical efficacy |
 | Combination-minus-single change difference | Higher recorded patient-equal change frequency in the disclosed combination phenotype | Comorbidity effect, interaction, indication, or treatment rule |
 | Annual item movement | Recorded annual composition or change frequency under the patient-year estimand | Effectiveness, quality improvement, disease progression, causal trend, or forecast |
+| Recorded gram-dose median | Historical dose distribution among patients with resolved `g` records | Standard, optimal, recommended, or individualized dose |
 | Shared network member | Entered each thresholded public network | Universal core treatment or cross-disease mechanism |
 | Single-group network member | Entered only that group's primary public network at the configured thresholds | Disease specificity, contraindication elsewhere, or non-use elsewhere |
 | Network component or degree | Descriptive co-prescription structure or prominence | Syndrome, pharmacologic module, scale-free structure, or recommendation |

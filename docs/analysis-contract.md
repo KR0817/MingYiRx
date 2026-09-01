@@ -42,6 +42,12 @@ The exact-match-only and minimum-five-control restrictions are robustness checks
 
 An addition or removal row means that at least the configured public minimum number of repeat patients experienced that recorded change. The patient-level transition fraction is calculated before group averaging so patients with many visits do not dominate. The two directions are disclosed independently; a missing direction is below the reporting rule or absent and must not be treated as zero. These historical tendencies do not determine whether an item should be added, removed, continued, or dosed for a current patient.
 
+## Historical recorded gram doses
+
+A published gram value is a distribution summary of an explicitly recorded `g` value, not a treatment recommendation. First-prescription summaries use one observation per exposed patient. Addition doses come from the prescription where the item appears; removal doses come from the preceding prescription where it was still present. Repeated changes are summarized within patient before the group median and inclusive IQR; annual changes are additionally summarized within patient-year. Other units, unresolved conflicts, and missing doses are not converted or imputed.
+
+Dose disclosure has its own `min_public_n` gate. A prevalence or change row can remain public while its dose fields are blank because fewer than the required number of patients had a resolved gram value. Blank dose fields mean unavailable under the recording and privacy rules, not zero grams. Constituent doses shown beside a stable pair or triplet are the matching stratum's single-item first-prescription summaries, not a combination-specific regimen.
+
 ## Clinical review interface
 
 The interactive dashboard is a local cohort-review surface over public aggregate results. It does not accept an individual patient's symptoms, examination, laboratory data, comorbidities, allergies, current medicines, pregnancy status, or treatment response. Therefore it cannot generate a clinically complete or patient-specific prescription. Users must be able to inspect the cohort denominator, calculation basis, threshold, and uncertainty boundary without relying primarily on the visual ranking.

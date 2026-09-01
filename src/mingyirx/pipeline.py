@@ -43,6 +43,10 @@ TABLE_FIELDS = {
         "exposed_patients",
         "group_patients",
         "prevalence",
+        "dose_patients",
+        "median_dose_g",
+        "dose_q1_g",
+        "dose_q3_g",
     ],
     "frequent_item_combinations": [
         "group",
@@ -148,6 +152,10 @@ TABLE_FIELDS = {
         "patients_with_change",
         "patient_prevalence",
         "mean_patient_transition_fraction",
+        "dose_patients",
+        "median_dose_g",
+        "dose_q1_g",
+        "dose_q3_g",
     ],
     "cross_group_similarity": [
         "group_left",
@@ -266,6 +274,10 @@ TABLE_FIELDS = {
         "exposed_patients",
         "group_patients",
         "prevalence",
+        "dose_patients",
+        "median_dose_g",
+        "dose_q1_g",
+        "dose_q3_g",
     ],
     "clinical_frequent_item_combinations": [
         "group",
@@ -315,6 +327,10 @@ TABLE_FIELDS = {
         "patients_with_change",
         "patient_prevalence",
         "mean_patient_transition_fraction",
+        "dose_patients",
+        "median_dose_g",
+        "dose_q1_g",
+        "dose_q3_g",
     ],
     "clinical_item_change_comparison": [
         "combination_group",
@@ -336,6 +352,14 @@ TABLE_FIELDS = {
         "combination_mean_transition_fraction",
         "single_mean_transition_fraction",
         "mean_transition_fraction_difference",
+        "combination_dose_patients",
+        "combination_median_dose_g",
+        "combination_dose_q1_g",
+        "combination_dose_q3_g",
+        "single_dose_patients",
+        "single_median_dose_g",
+        "single_dose_q1_g",
+        "single_dose_q3_g",
         "higher_frequency",
     ],
     "clinical_year_summary": [
@@ -365,6 +389,10 @@ TABLE_FIELDS = {
         "exposed_patients",
         "group_patients",
         "prevalence",
+        "dose_patients",
+        "median_dose_g",
+        "dose_q1_g",
+        "dose_q3_g",
     ],
     "clinical_year_item_change_tendency": [
         "group",
@@ -381,6 +409,10 @@ TABLE_FIELDS = {
         "patients_with_change",
         "patient_prevalence",
         "mean_patient_transition_fraction",
+        "dose_patients",
+        "median_dose_g",
+        "dose_q1_g",
+        "dose_q3_g",
     ],
 }
 
@@ -710,6 +742,10 @@ def _write_report(
                 "combination_mean_transition_fraction",
                 "single_mean_transition_fraction",
                 "mean_transition_fraction_difference",
+                "combination_dose_patients",
+                "combination_median_dose_g",
+                "single_dose_patients",
+                "single_median_dose_g",
                 "higher_frequency",
             ],
         )
@@ -737,13 +773,13 @@ This secondary view uses exact target-disease signatures and does not alter the 
 
 ### Combination-versus-single item-change differences
 
-Only item directions that independently pass the public-patient threshold on both sides are shown. The primary ordering is the difference in mean patient-level transition fraction; patient prevalence is retained as context. Positive differences mean only higher recorded change frequency in the combination phenotype; they are not comorbidity effects or treatment rules.
+Only item directions that independently pass the public-patient threshold on both sides are shown. The primary ordering is the difference in mean patient-level transition fraction; patient prevalence is retained as context. Historical gram-dose medians are independently suppressed when fewer than the public minimum number of patients have resolved `g` values. Positive differences mean only higher recorded change frequency in the combination phenotype; they are not comorbidity effects or treatment rules.
 
 {clinical_comparisons}
 
 ### Patient-year evolution coverage
 
-Each patient contributes one annual index prescription. Adjacent changes are assigned to the year of the later visit and averaged after calculating patient-year transition fractions. Suppressed cells are unavailable rather than zero.
+Each patient contributes one annual index prescription. Adjacent changes are assigned to the year of the later visit and averaged after calculating patient-year transition fractions. Recorded gram doses are summarized under the same patient-year ordering with a separate disclosure gate. Suppressed cells are unavailable rather than zero.
 
 {clinical_years}
 """
@@ -812,7 +848,7 @@ Members retained in every configured group:
 
 ### Reportable item-level addition and removal tendencies
 
-Rows are patient-equal historical summaries. Each direction is shown only when at least the configured public minimum number of repeat patients experienced that change; a missing direction is not zero and is not a treatment recommendation. The complete table is available in `longitudinal_item_change_tendency.csv`.
+Rows are patient-equal historical summaries. Each direction is shown only when at least the configured public minimum number of repeat patients experienced that change; a missing direction is not zero and is not a treatment recommendation. Historical gram-dose medians and IQRs first summarize repeated events within patient and have a separate patient-count disclosure gate. The complete table is available in `longitudinal_item_change_tendency.csv`.
 
 {longitudinal_item_change_table}
 
@@ -844,7 +880,7 @@ Rows are patient-equal historical summaries. Each direction is shown only when a
 
 ## Interpretation boundary
 
-These results describe recorded prescription structure and follow-up modification in the supplied record system. They do not establish effectiveness, safety, prescribing appropriateness, mechanism, syndrome differentiation, diagnostic validity, or external transportability.
+These results describe recorded prescription structure, historical gram-dose distributions, and follow-up modification in the supplied record system. Recorded doses are neither converted nor imputed and must not be interpreted as standard, optimal, recommended, or patient-specific doses. The results do not establish effectiveness, safety, prescribing appropriateness, mechanism, syndrome differentiation, diagnostic validity, or external transportability.
 """
     path.write_text(report, encoding="utf-8")
 
