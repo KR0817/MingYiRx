@@ -328,27 +328,42 @@ def _gram_dose(visit: PrescriptionVisit, item: str) -> float | None:
     return value if unit.casefold() == "g" else None
 
 
-def _dose_summary(
+def _unique_mode(values: list[float]) -> float | None:
+    """Return one modal value, leaving tied personal histories unresolved."""
+    if not values:
+        return None
+    counts = Counter(values)
+    maximum = max(counts.values())
+    modes = [value for value, count in counts.items() if count == maximum]
+    return modes[0] if len(modes) == 1 else None
+
+
+def _dose_mode_summary(
     values: list[float], min_public_n: int
-) -> dict[str, int | float | None]:
-    """Summarize patient-level gram doses only when the dose cell is public."""
+) -> dict[str, int | float | str | bool | None]:
+    """Return privacy-gated patient-level gram-dose modes."""
+    empty: dict[str, int | float | str | bool | None] = {
+        "dose_patients": None,
+        "most_common_dose_values_g": None,
+        "most_common_dose_patients": None,
+        "most_common_dose_fraction": None,
+        "most_common_dose_tied": None,
+    }
     if len(values) < min_public_n:
-        return {
-            "dose_patients": None,
-            "median_dose_g": None,
-            "dose_q1_g": None,
-            "dose_q3_g": None,
-        }
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        q1 = q3 = ordered[0]
-    else:
-        q1, _, q3 = statistics.quantiles(ordered, n=4, method="inclusive")
+        return empty
+    counts = Counter(values)
+    maximum = max(counts.values())
+    if maximum < min_public_n:
+        return empty
+    modes = sorted(value for value, count in counts.items() if count == maximum)
     return {
-        "dose_patients": len(ordered),
-        "median_dose_g": statistics.median(ordered),
-        "dose_q1_g": q1,
-        "dose_q3_g": q3,
+        "dose_patients": len(values),
+        "most_common_dose_values_g": ";".join(
+            format(value, ".9g") for value in modes
+        ),
+        "most_common_dose_patients": maximum,
+        "most_common_dose_fraction": maximum / len(values),
+        "most_common_dose_tied": len(modes) > 1,
     }
 
 
@@ -994,7 +1009,7 @@ def _first_prescription_rows(
                     "exposed_patients": count,
                     "group_patients": denominators[group],
                     "prevalence": prevalence[group][item],
-                    **_dose_summary(
+                    **_dose_mode_summary(
                         doses_by_group_item[(group, item)], min_public_n
                     ),
                 }
@@ -1118,12 +1133,14 @@ def _longitudinal_item_change_rows(
                     item: count / transition_n for item, count in removed_counts.items()
                 },
                 "addition_doses": {
-                    item: statistics.median(values)
+                    item: mode
                     for item, values in added_doses.items()
+                    if (mode := _unique_mode(values)) is not None
                 },
                 "removal_doses": {
-                    item: statistics.median(values)
+                    item: mode
                     for item, values in removed_doses.items()
+                    if (mode := _unique_mode(values)) is not None
                 },
             }
         )
@@ -1167,7 +1184,7 @@ def _longitudinal_item_change_rows(
                         "patients_with_change": patients_with_change,
                         "patient_prevalence": patients_with_change / repeat_patients,
                         "mean_patient_transition_fraction": statistics.fmean(rates),
-                        **_dose_summary(patient_doses, min_public_n),
+                        **_dose_mode_summary(patient_doses, min_public_n),
                     }
                 )
     rows.sort(
@@ -1309,7 +1326,7 @@ def _clinical_patient_year_rows(
                     "exposed_patients": count,
                     "group_patients": patients,
                     "prevalence": count / patients,
-                    **_dose_summary(
+                    **_dose_mode_summary(
                         group_year_index_doses[key][item], min_public_n
                     ),
                 }
@@ -1345,9 +1362,9 @@ def _clinical_patient_year_rows(
                     if not isinstance(dose_values, defaultdict):
                         raise TypeError("Patient-year dose collection is invalid.")
                     if dose_values.get(item):
-                        patient_doses.append(
-                            statistics.median(dose_values[item])
-                        )
+                        mode = _unique_mode(dose_values[item])
+                        if mode is not None:
+                            patient_doses.append(mode)
                 change_rows.append(
                     {
                         "group": group,
@@ -1361,7 +1378,7 @@ def _clinical_patient_year_rows(
                         "mean_patient_transition_fraction": statistics.fmean(
                             rates
                         ),
-                        **_dose_summary(patient_doses, min_public_n),
+                        **_dose_mode_summary(patient_doses, min_public_n),
                     }
                 )
 
@@ -1674,15 +1691,31 @@ def analyze_clinical_phenotypes(
                         "combination_dose_patients": combination_row[
                             "dose_patients"
                         ],
-                        "combination_median_dose_g": combination_row[
-                            "median_dose_g"
+                        "combination_most_common_dose_values_g": combination_row[
+                            "most_common_dose_values_g"
                         ],
-                        "combination_dose_q1_g": combination_row["dose_q1_g"],
-                        "combination_dose_q3_g": combination_row["dose_q3_g"],
+                        "combination_most_common_dose_patients": combination_row[
+                            "most_common_dose_patients"
+                        ],
+                        "combination_most_common_dose_fraction": combination_row[
+                            "most_common_dose_fraction"
+                        ],
+                        "combination_most_common_dose_tied": combination_row[
+                            "most_common_dose_tied"
+                        ],
                         "single_dose_patients": single_row["dose_patients"],
-                        "single_median_dose_g": single_row["median_dose_g"],
-                        "single_dose_q1_g": single_row["dose_q1_g"],
-                        "single_dose_q3_g": single_row["dose_q3_g"],
+                        "single_most_common_dose_values_g": single_row[
+                            "most_common_dose_values_g"
+                        ],
+                        "single_most_common_dose_patients": single_row[
+                            "most_common_dose_patients"
+                        ],
+                        "single_most_common_dose_fraction": single_row[
+                            "most_common_dose_fraction"
+                        ],
+                        "single_most_common_dose_tied": single_row[
+                            "most_common_dose_tied"
+                        ],
                         "higher_frequency": (
                             "combination"
                             if frequency_difference > 0

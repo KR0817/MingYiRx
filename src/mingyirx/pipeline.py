@@ -44,9 +44,10 @@ TABLE_FIELDS = {
         "group_patients",
         "prevalence",
         "dose_patients",
-        "median_dose_g",
-        "dose_q1_g",
-        "dose_q3_g",
+        "most_common_dose_values_g",
+        "most_common_dose_patients",
+        "most_common_dose_fraction",
+        "most_common_dose_tied",
     ],
     "frequent_item_combinations": [
         "group",
@@ -153,9 +154,10 @@ TABLE_FIELDS = {
         "patient_prevalence",
         "mean_patient_transition_fraction",
         "dose_patients",
-        "median_dose_g",
-        "dose_q1_g",
-        "dose_q3_g",
+        "most_common_dose_values_g",
+        "most_common_dose_patients",
+        "most_common_dose_fraction",
+        "most_common_dose_tied",
     ],
     "cross_group_similarity": [
         "group_left",
@@ -275,9 +277,10 @@ TABLE_FIELDS = {
         "group_patients",
         "prevalence",
         "dose_patients",
-        "median_dose_g",
-        "dose_q1_g",
-        "dose_q3_g",
+        "most_common_dose_values_g",
+        "most_common_dose_patients",
+        "most_common_dose_fraction",
+        "most_common_dose_tied",
     ],
     "clinical_frequent_item_combinations": [
         "group",
@@ -328,9 +331,10 @@ TABLE_FIELDS = {
         "patient_prevalence",
         "mean_patient_transition_fraction",
         "dose_patients",
-        "median_dose_g",
-        "dose_q1_g",
-        "dose_q3_g",
+        "most_common_dose_values_g",
+        "most_common_dose_patients",
+        "most_common_dose_fraction",
+        "most_common_dose_tied",
     ],
     "clinical_item_change_comparison": [
         "combination_group",
@@ -353,13 +357,15 @@ TABLE_FIELDS = {
         "single_mean_transition_fraction",
         "mean_transition_fraction_difference",
         "combination_dose_patients",
-        "combination_median_dose_g",
-        "combination_dose_q1_g",
-        "combination_dose_q3_g",
+        "combination_most_common_dose_values_g",
+        "combination_most_common_dose_patients",
+        "combination_most_common_dose_fraction",
+        "combination_most_common_dose_tied",
         "single_dose_patients",
-        "single_median_dose_g",
-        "single_dose_q1_g",
-        "single_dose_q3_g",
+        "single_most_common_dose_values_g",
+        "single_most_common_dose_patients",
+        "single_most_common_dose_fraction",
+        "single_most_common_dose_tied",
         "higher_frequency",
     ],
     "clinical_year_summary": [
@@ -390,9 +396,10 @@ TABLE_FIELDS = {
         "group_patients",
         "prevalence",
         "dose_patients",
-        "median_dose_g",
-        "dose_q1_g",
-        "dose_q3_g",
+        "most_common_dose_values_g",
+        "most_common_dose_patients",
+        "most_common_dose_fraction",
+        "most_common_dose_tied",
     ],
     "clinical_year_item_change_tendency": [
         "group",
@@ -410,9 +417,10 @@ TABLE_FIELDS = {
         "patient_prevalence",
         "mean_patient_transition_fraction",
         "dose_patients",
-        "median_dose_g",
-        "dose_q1_g",
-        "dose_q3_g",
+        "most_common_dose_values_g",
+        "most_common_dose_patients",
+        "most_common_dose_fraction",
+        "most_common_dose_tied",
     ],
 }
 
@@ -743,9 +751,11 @@ def _write_report(
                 "single_mean_transition_fraction",
                 "mean_transition_fraction_difference",
                 "combination_dose_patients",
-                "combination_median_dose_g",
+                "combination_most_common_dose_values_g",
+                "combination_most_common_dose_patients",
                 "single_dose_patients",
-                "single_median_dose_g",
+                "single_most_common_dose_values_g",
+                "single_most_common_dose_patients",
                 "higher_frequency",
             ],
         )
@@ -773,7 +783,7 @@ This secondary view uses exact target-disease signatures and does not alter the 
 
 ### Combination-versus-single item-change differences
 
-Only item directions that independently pass the public-patient threshold on both sides are shown. The primary ordering is the difference in mean patient-level transition fraction; patient prevalence is retained as context. Historical gram-dose medians are independently suppressed when fewer than the public minimum number of patients have resolved `g` values. Positive differences mean only higher recorded change frequency in the combination phenotype; they are not comorbidity effects or treatment rules.
+Only item directions that independently pass the public-patient threshold on both sides are shown. The primary ordering is the difference in mean patient-level transition fraction; patient prevalence is retained as context. Patient-equal most frequently recorded gram doses are independently suppressed unless both the usable patient total and highest-frequency exact-dose category meet the public minimum. Positive differences mean only higher recorded change frequency in the combination phenotype; they are not comorbidity effects or treatment rules.
 
 {clinical_comparisons}
 
@@ -848,7 +858,7 @@ Members retained in every configured group:
 
 ### Reportable item-level addition and removal tendencies
 
-Rows are patient-equal historical summaries. Each direction is shown only when at least the configured public minimum number of repeat patients experienced that change; a missing direction is not zero and is not a treatment recommendation. Historical gram-dose medians and IQRs first summarize repeated events within patient and have a separate patient-count disclosure gate. The complete table is available in `longitudinal_item_change_tendency.csv`.
+Rows are patient-equal historical summaries. Each direction is shown only when at least the configured public minimum number of repeat patients experienced that change; a missing direction is not zero and is not a treatment recommendation. Repeated dose events first resolve to a unique within-patient mode, then the group-level most frequently recorded exact gram dose is reported only when its separate patient and exact-category disclosure gates pass; group ties are retained. The complete table is available in `longitudinal_item_change_tendency.csv`.
 
 {longitudinal_item_change_table}
 

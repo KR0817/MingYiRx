@@ -321,9 +321,10 @@ class PipelineTests(unittest.TestCase):
             )
         )
         self.assertEqual(rows[0]["dose_patients"], 2)
-        self.assertEqual(rows[0]["median_dose_g"], 1.0)
-        self.assertEqual(rows[0]["dose_q1_g"], 1.0)
-        self.assertEqual(rows[0]["dose_q3_g"], 1.0)
+        self.assertEqual(rows[0]["most_common_dose_values_g"], "1")
+        self.assertEqual(rows[0]["most_common_dose_patients"], 2)
+        self.assertEqual(rows[0]["most_common_dose_fraction"], 1.0)
+        self.assertFalse(rows[0]["most_common_dose_tied"])
 
         unresolved_visits = {
             **visits,
@@ -342,7 +343,7 @@ class PipelineTests(unittest.TestCase):
             unresolved_visits, ("ra",), 2
         )
         self.assertIsNone(unresolved_rows[0]["dose_patients"])
-        self.assertIsNone(unresolved_rows[0]["median_dose_g"])
+        self.assertIsNone(unresolved_rows[0]["most_common_dose_values_g"])
 
     def test_clinical_phenotypes_are_stratified_and_compared_after_suppression(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -459,9 +460,16 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(overall_difference["higher_frequency"], "combination")
         self.assertEqual(overall_difference["combination_dose_patients"], 3)
-        self.assertEqual(overall_difference["combination_median_dose_g"], 1.0)
+        self.assertEqual(
+            overall_difference["combination_most_common_dose_values_g"], "1"
+        )
+        self.assertEqual(
+            overall_difference["combination_most_common_dose_patients"], 3
+        )
         self.assertEqual(overall_difference["single_dose_patients"], 2)
-        self.assertEqual(overall_difference["single_median_dose_g"], 1.0)
+        self.assertEqual(
+            overall_difference["single_most_common_dose_values_g"], "1"
+        )
 
         year_summary = result.tables["clinical_year_summary"]
         self.assertTrue(
@@ -498,9 +506,9 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("减味 ←", dashboard_text)
             self.assertIn('grid-template-areas:"removal core addition"', dashboard_text)
             self.assertIn("发生患者占比", dashboard_text)
-            self.assertIn("历史记录克数", dashboard_text)
+            self.assertIn("最常记录克数", dashboard_text)
 
-    def test_change_dose_is_summarized_within_patient_before_group(self) -> None:
+    def test_change_dose_mode_is_patient_equal_and_reports_group_ties(self) -> None:
         visits = {
             "P1": (
                 self._visit("P1", "P1V1", date(2021, 1, 1), {"A"}),
@@ -519,6 +527,14 @@ class PipelineTests(unittest.TestCase):
                     {"A", "B"},
                     dose_overrides={"B": (4.0, "g")},
                 ),
+                self._visit("P1", "P1V5", date(2021, 5, 1), {"A"}),
+                self._visit(
+                    "P1",
+                    "P1V6",
+                    date(2021, 6, 1),
+                    {"A", "B"},
+                    dose_overrides={"B": (2.0, "g")},
+                ),
             ),
             "P2": (
                 self._visit("P2", "P2V1", date(2021, 1, 1), {"A"}),
@@ -530,18 +546,53 @@ class PipelineTests(unittest.TestCase):
                     dose_overrides={"B": (40.0, "g")},
                 ),
             ),
+            "P3": (
+                self._visit("P3", "P3V1", date(2021, 1, 1), {"A"}),
+                self._visit(
+                    "P3",
+                    "P3V2",
+                    date(2021, 2, 1),
+                    {"A", "B"},
+                    dose_overrides={"B": (5.0, "g")},
+                ),
+                self._visit("P3", "P3V3", date(2021, 3, 1), {"A"}),
+                self._visit(
+                    "P3",
+                    "P3V4",
+                    date(2021, 4, 1),
+                    {"A", "B"},
+                    dose_overrides={"B": (6.0, "g")},
+                ),
+            ),
         }
-        rows = _longitudinal_item_change_rows(visits, ("ra",), 2)
+        rows = _longitudinal_item_change_rows(visits, ("ra",), 1)
         addition_b = next(
             row
             for row in rows
             if row["item_name"] == "B" and row["change_type"] == "addition"
         )
         self.assertEqual(addition_b["dose_patients"], 2)
-        self.assertEqual(addition_b["median_dose_g"], 21.5)
+        self.assertEqual(addition_b["most_common_dose_values_g"], "2;40")
+        self.assertEqual(addition_b["most_common_dose_patients"], 1)
+        self.assertEqual(addition_b["most_common_dose_fraction"], 0.5)
+        self.assertTrue(addition_b["most_common_dose_tied"])
+        self.assertEqual(addition_b["patients_with_change"], 3)
+
+        privacy_suppressed = _longitudinal_item_change_rows(
+            visits, ("ra",), 2
+        )
+        suppressed_addition_b = next(
+            row
+            for row in privacy_suppressed
+            if row["item_name"] == "B" and row["change_type"] == "addition"
+        )
+        self.assertIsNone(suppressed_addition_b["dose_patients"])
+        self.assertIsNone(
+            suppressed_addition_b["most_common_dose_values_g"]
+        )
 
         _, _, annual_changes = _clinical_patient_year_rows(
-            visits, ("ra",), 2
+            visits, ("ra",), 1
         )
         annual_addition_b = next(
             row
@@ -549,7 +600,10 @@ class PipelineTests(unittest.TestCase):
             if row["item_name"] == "B" and row["change_type"] == "addition"
         )
         self.assertEqual(annual_addition_b["dose_patients"], 2)
-        self.assertEqual(annual_addition_b["median_dose_g"], 21.5)
+        self.assertEqual(
+            annual_addition_b["most_common_dose_values_g"], "2;40"
+        )
+        self.assertTrue(annual_addition_b["most_common_dose_tied"])
 
     def test_patient_year_changes_are_assigned_to_the_later_visit_year(self) -> None:
         visits = {
@@ -583,7 +637,8 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertTrue(math.isclose(float(item_b["prevalence"]), 1.0))
         self.assertEqual(item_b["dose_patients"], 2)
-        self.assertEqual(item_b["median_dose_g"], 1.0)
+        self.assertEqual(item_b["most_common_dose_values_g"], "1")
+        self.assertEqual(item_b["most_common_dose_patients"], 2)
         addition_b = next(
             row
             for row in changes
@@ -597,7 +652,8 @@ class PipelineTests(unittest.TestCase):
             )
         )
         self.assertEqual(addition_b["dose_patients"], 2)
-        self.assertEqual(addition_b["median_dose_g"], 1.0)
+        self.assertEqual(addition_b["most_common_dose_values_g"], "1")
+        self.assertEqual(addition_b["most_common_dose_patients"], 2)
 
     def test_exact_bootstrap_core_selection_probability(self) -> None:
         self.assertTrue(
