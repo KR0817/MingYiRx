@@ -119,3 +119,8 @@
 - The clinical review trajectory now uses an explicit outward flow from the first-prescription backbone: red removal on the left, an elevated blue backbone in the center, and green addition on the right. Drug rows repeat the minus, diamond, and plus symbols so meaning does not depend on color alone.
 - Labels distinguish first-prescription patient coverage from follow-up patient prevalence. The mobile grid presents backbone, removal, then addition to preserve the reading sequence on narrow screens.
 - This patch changes dashboard presentation only. Eighteen tests, JavaScript syntax validation, aggregate privacy scanning, and static responsive-structure checks passed; scientific CSVs and estimands were not regenerated or changed.
+
+## 2026-09-02 — GitHub remote created
+
+- The private repository is `https://github.com/KR0817/MingYiRx` and the local remote name is `origin` with HTTPS fetch/push URLs.
+- The repository was created successfully, but the initial `main` push did not complete because Git HTTPS connections to `github.com:443` timed out or reset. GitHub API access remained available, confirming repository creation and private visibility. No force push or history rewrite was attempted.
