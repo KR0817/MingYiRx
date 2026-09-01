@@ -465,6 +465,9 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(dashboard["clinical_mode"])
             self.assertIn("同类历史处方参照", dashboard_text)
             self.assertIn("年度处方演变", dashboard_text)
+            self.assertIn("减味 ←", dashboard_text)
+            self.assertIn('grid-template-areas:"removal core addition"', dashboard_text)
+            self.assertIn("发生患者占比", dashboard_text)
 
     def test_patient_year_changes_are_assigned_to_the_later_visit_year(self) -> None:
         visits = {

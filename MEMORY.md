@@ -113,3 +113,9 @@
 - The dashboard now includes exact single/combined phenotypes, demographics, combination-versus-single change differences, annual item trajectories, and ephemeral diagnosis/sex/age lookup. The lookup retrieves public historical strata only; it does not persist input, combine sex with age, fit a prediction model, or generate items or doses for a patient.
 - Eighteen synthetic tests and compilation passed. A real v0.12 run was `PASS_WITH_WARNINGS`, had zero privacy issues, and two consecutive runs produced identical hashes for all 28 public CSV/report artifacts. In-app browser automation blocks local `file://` inspection, so this revision has JS syntax and static responsive-structure checks but no new automated pixel-level render result.
 - Automatic prescription prediction remains out of scope without a prospective feature contract containing symptoms, syndrome differentiation, safety covariates, outcomes, training/validation separation, calibration, and clinical governance. The safe current product is retrospective cohort reference, not clinical decision support.
+
+## 2026-09-02 — Version 0.12.1 trajectory hierarchy refined
+
+- The clinical review trajectory now uses an explicit outward flow from the first-prescription backbone: red removal on the left, an elevated blue backbone in the center, and green addition on the right. Drug rows repeat the minus, diamond, and plus symbols so meaning does not depend on color alone.
+- Labels distinguish first-prescription patient coverage from follow-up patient prevalence. The mobile grid presents backbone, removal, then addition to preserve the reading sequence on narrow screens.
+- This patch changes dashboard presentation only. Eighteen tests, JavaScript syntax validation, aggregate privacy scanning, and static responsive-structure checks passed; scientific CSVs and estimands were not regenerated or changed.
