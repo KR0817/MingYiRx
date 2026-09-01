@@ -23,7 +23,7 @@ The original study is a reference case, not a dependency of this repository.
 | Data-to-paper evidence handoff | `docs/data-to-paper-workflow.md` and synthetic-data CI | Implemented in v0.10 without automatic claim generation |
 | Patient-equal item-level addition/removal tendency | `analysis.py` | Implemented in v0.11 with direction-specific public-patient suppression |
 | Local clinical review dashboard | `dashboard.py` | Implemented in v0.11 from public aggregate tables only; no raw upload or patient-specific recommendation |
-| Comorbidity, demographic, and patient-year clinical views | `cohort.py`, `analysis.py`, `dashboard.py` | Implemented in v0.12 as suppressed descriptive aggregates; local input retrieves history rather than predicting a prescription |
+| Comorbidity, demographic, and patient-year clinical views | `cohort.py`, `analysis.py`, `dashboard.py` | Implemented in v0.12 as suppressed descriptive aggregates; v0.14.1 renders annual item metrics as gap-aware line charts; local input retrieves history rather than predicting a prescription |
 | Privacy-gated item gram-dose summaries | `analysis.py`, `pipeline.py`, `dashboard.py` | Added as medians/IQRs in v0.13 and replaced in v0.14 by patient-equal most frequently recorded exact gram dose(s), including explicit group ties and an exact-category privacy gate; no unit conversion or recommendation |
 | Manuscript and journal packaging | Separate downstream project | Do not couple to core |
 
