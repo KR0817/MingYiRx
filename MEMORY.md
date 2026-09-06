@@ -164,3 +164,10 @@
 - GitHub's commit endpoint preserved the original timestamps and timezone but serialized the one-line messages without Git's local trailing newline, so the API-created commit hashes differ from the corresponding local hashes even though their trees are identical.
 - The API-created history is merged into local `main` without resetting or rebasing. A later normal push may contain a reconciliation merge commit, but it must remain a fast-forward update from the API-created remote head.
 - At continuation start, the C-drive and F-drive project copies had identical hashes for `AGENTS.md`, `MEMORY.md`, `README.md`, the deployment record, and the reviewed dashboard. This thread uses the mounted `F:\Codex\2026-08-31\git` copy; do not edit both copies independently.
+
+## 2026-09-06 — Pointer-only research archive manifest created
+
+- The archive entry point is `C:\CODEX\MingYiRx-archive-2026-09-06\research-project-manifest.json`, with SHA-256 `0b7f6da5932ba67cfc453ca75c7f506b70f3f620a3f8ff9ba4e6b1b8028c5375` recorded in an adjacent checksum file.
+- The manifest stores local pointers, byte counts, row counts, schema hashes, and SHA-256 digests for the two sensitive source exports. It does not copy patient-level data into the archive, Git, or public hosting.
+- Both source pointers, the locked run configuration, restricted run manifest, and task handoff existed and matched their recorded hashes at verification time. All 28 aggregate artifacts declared by the restricted run manifest were present with zero hash mismatches.
+- This is a pointer-only archive, not an independent raw-data backup. If the source files move, update the pointers only after recomputing and matching the recorded hashes.
