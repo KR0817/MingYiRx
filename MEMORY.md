@@ -156,3 +156,11 @@
 - The published source dashboard SHA-256 is `f15d50123696acb01b8ebf2d2f49b4002d4cfb940874c7786e88c38bc7fe2bc9`. Preflight found no direct-identifier field names, mainland phone/identity patterns, exact ISO dates, email addresses, or local absolute paths.
 - The production build, focused lint, and dependency audit passed with zero reported vulnerabilities. Unauthenticated HTTP checks returned 200 for the root and dashboard asset. The hosting edge appends a Cloudflare challenge script to served HTML, so the production response hash differs from the validated source hash.
 - The deployment documentation was committed locally with the existing v0.14.1 dashboard change, but the private GitHub repository remained two commits behind because HTTPS connections to `github.com:443` timed out again. The public Sites deployment is independent and succeeded.
+
+## 2026-09-06 — GitHub content synchronized through the Git Data API
+
+- A normal HTTPS push still could not connect to `github.com:443`, while authenticated calls to `api.github.com` remained available.
+- The two pending commits were reconstructed through GitHub's Git Data API from verified local blob and tree hashes. The remote file tree matched the local `main` tree before the branch reference was advanced without force.
+- GitHub's commit endpoint preserved the original timestamps and timezone but serialized the one-line messages without Git's local trailing newline, so the API-created commit hashes differ from the corresponding local hashes even though their trees are identical.
+- The API-created history is merged into local `main` without resetting or rebasing. A later normal push may contain a reconciliation merge commit, but it must remain a fast-forward update from the API-created remote head.
+- At continuation start, the C-drive and F-drive project copies had identical hashes for `AGENTS.md`, `MEMORY.md`, `README.md`, the deployment record, and the reviewed dashboard. This thread uses the mounted `F:\Codex\2026-08-31\git` copy; do not edit both copies independently.
