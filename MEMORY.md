@@ -171,3 +171,10 @@
 - The manifest stores local pointers, byte counts, row counts, schema hashes, and SHA-256 digests for the two sensitive source exports. It does not copy patient-level data into the archive, Git, or public hosting.
 - Both source pointers, the locked run configuration, restricted run manifest, and task handoff existed and matched their recorded hashes at verification time. All 28 aggregate artifacts declared by the restricted run manifest were present with zero hash mismatches.
 - This is a pointer-only archive, not an independent raw-data backup. If the source files move, update the pointers only after recomputing and matching the recorded hashes.
+
+## 2026-09-07 — Sjogren disease Qinghao focal network figure verified
+
+- `scripts/plot_sjd_focal_network.py` builds a compact CNSPlots two-panel figure from three privacy-screened aggregate tables only: the top 15 first-prescription items and a focal-item ego network. The focal item is supplied at runtime and is not hard-coded.
+- In the locked SjD strict cohort, Qinghao was present in 291/652 first prescriptions (44.6%) and had six reportable primary-network edges. The figure presents co-occurrence and prevalence descriptively; it is not a complete disease network, an efficacy result, or a treatment recommendation.
+- The reviewed outputs are under ignored `outputs/tao_preflight/figures_qinghao/`: editable SVG SHA-256 `c71d1ce2a273b2b879b2d31fad953ae33ab082607b4c7844171d3cd17e27a11c` and PNG SHA-256 `2e261907b2a1805ff75e390a7eee560d5761c75c8ae9a1d654a8fec56d217c21`.
+- Two independent renders had identical SVG and PNG hashes. The script compiled, the SVG parsed as XML, the PNG was 4,888 x 2,540 pixels, and the aggregate-output privacy scan found zero issues. `mutool` remains unavailable, so CNSPlots used its standard Matplotlib SVG fallback.
