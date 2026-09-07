@@ -258,7 +258,7 @@ def _draw_network_panel(
     )
     node_order = list(graph.nodes)
     node_sizes = [
-        1550 if node == focal_item else 650 + 1700 * graph.nodes[node]["prevalence"]
+        3800 if node == focal_item else 650 + 1200 * graph.nodes[node]["prevalence"]
         for node in node_order
     ]
     node_colors = [FOCAL_COLOR if node == focal_item else BASE_COLOR for node in node_order]
@@ -276,17 +276,51 @@ def _draw_network_panel(
 
     for node, (x_value, y_value) in positions.items():
         prevalence = 100 * float(graph.nodes[node]["prevalence"])
+        if node == focal_item:
+            ax.text(
+                x_value,
+                y_value,
+                f"{node}\n{prevalence:.1f}%",
+                ha="center",
+                va="center",
+                fontsize=12.5,
+                fontweight="bold",
+                fontproperties=CJK_FONT,
+                color="white",
+                zorder=4,
+            )
+            continue
         ax.text(
             x_value,
             y_value,
-            f"{node}\n{prevalence:.1f}%",
+            f"{prevalence:.1f}%",
             ha="center",
             va="center",
-            fontsize=10.5 if node == focal_item else 9.5,
+            fontsize=9.5,
             fontweight="bold",
-            fontproperties=CJK_FONT,
             color="white",
             zorder=4,
+        )
+        label_scale = 1.13
+        label_x = label_scale * x_value
+        label_y = label_scale * y_value
+        horizontal_alignment = (
+            "left" if x_value > 0.2 else "right" if x_value < -0.2 else "center"
+        )
+        vertical_alignment = (
+            "bottom" if y_value > 0.2 else "top" if y_value < -0.2 else "center"
+        )
+        ax.text(
+            label_x,
+            label_y,
+            node,
+            ha=horizontal_alignment,
+            va=vertical_alignment,
+            fontsize=10.5,
+            fontweight="bold",
+            fontproperties=CJK_FONT,
+            color=TEXT_COLOR,
+            zorder=5,
         )
 
     for left, right, attributes in edges:
@@ -342,6 +376,7 @@ def main() -> None:
     parser.add_argument("--group", default="sjd_strict")
     parser.add_argument("--focal-item", required=True)
     parser.add_argument("--top-n", type=int, default=15)
+    parser.add_argument("--network-only", action="store_true")
     args = parser.parse_args()
     if args.top_n < 5:
         raise ValueError("--top-n must be at least 5")
@@ -359,28 +394,43 @@ def main() -> None:
         font_sans_serif=("Microsoft YaHei", "Arial", "DejaVu Sans"),
         panel_label_fontname="Arial",
     ):
-        multipanel = cns.multipanel(max_width=1240)
-        ax_frequency = multipanel.panel(
-            "A",
-            width=470,
-            height=540,
-            pad_left=18,
-            pad_top=14,
-            margin_right=30,
-            margin_bottom=42,
-        )
-        ax_network = multipanel.panel(
-            "B",
-            width=600,
-            height=540,
-            pad_left=12,
-            pad_top=14,
-            margin_right=18,
-            margin_bottom=42,
-        )
-        _draw_frequency_panel(ax_frequency, top, args.focal_item, patients)
-        _draw_network_panel(ax_network, nodes, edges, args.focal_item, group_label)
-        figure = plt.gcf()
+        if args.network_only:
+            cns.figure(width=760, height=620)
+            figure = plt.gcf()
+            ax_network = plt.gca()
+            _draw_network_panel(
+                ax_network, nodes, edges, args.focal_item, group_label
+            )
+            figure.subplots_adjust(left=0.04, right=0.96, top=0.86, bottom=0.10)
+            output_stem = args.output_dir / "sjd_focal_item_core_network"
+            manifest_name = "sjd_focal_item_core_network_manifest.json"
+        else:
+            multipanel = cns.multipanel(max_width=1240)
+            ax_frequency = multipanel.panel(
+                "A",
+                width=470,
+                height=540,
+                pad_left=18,
+                pad_top=14,
+                margin_right=30,
+                margin_bottom=42,
+            )
+            ax_network = multipanel.panel(
+                "B",
+                width=600,
+                height=540,
+                pad_left=12,
+                pad_top=14,
+                margin_right=18,
+                margin_bottom=42,
+            )
+            _draw_frequency_panel(ax_frequency, top, args.focal_item, patients)
+            _draw_network_panel(
+                ax_network, nodes, edges, args.focal_item, group_label
+            )
+            figure = plt.gcf()
+            output_stem = args.output_dir / "sjd_focal_item_frequency_network"
+            manifest_name = "sjd_focal_item_figure_manifest.json"
         figure.text(
             0.5,
             0.008,
@@ -390,7 +440,6 @@ def main() -> None:
             fontsize=9.5,
             color="#59666E",
         )
-        output_stem = args.output_dir / "sjd_focal_item_frequency_network"
         figure_paths = [output_stem.with_suffix(suffix) for suffix in (".svg", ".png")]
         for path in figure_paths:
             cns.savefig(path)
@@ -408,6 +457,7 @@ def main() -> None:
         "focal_item": args.focal_item,
         "top_n": args.top_n,
         "focal_edges": len(edges),
+        "layout": "network_only" if args.network_only else "frequency_and_network",
         "inputs": {path.name: _sha256(path) for path in input_paths},
         "software": {
             "python": platform.python_version(),
@@ -419,7 +469,7 @@ def main() -> None:
         "artifacts": {path.name: _sha256(path) for path in figure_paths},
         "interpretation": "Descriptive first-prescription co-occurrence only.",
     }
-    manifest_path = args.output_dir / "sjd_focal_item_figure_manifest.json"
+    manifest_path = args.output_dir / manifest_name
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
