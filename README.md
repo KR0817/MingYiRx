@@ -1,5 +1,18 @@
 # MingYiRx
 
+## 0.14.2 local dashboard revision
+
+Medication search now filters the trajectory and detailed lists consistently,
+with a scope label and a clear action. Annual metric changes retain the selected
+medication and show an unavailable state when its public data are absent.
+The HTML builder includes only declared aggregate fields and rejects identifier
+headers or malformed CSV rows. These checks do not replace source governance
+or minimum-cell suppression. Node.js, when installed, runs the JavaScript
+interaction regressions as part of the Python test suite.
+
+This revision is a local review build. The public website remains at 0.14.1
+until a separately verified deployment is performed.
+
 MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方分析项目。它把一次性论文脚本拆成可配置的数据入口和稳定的分析定义，用于描述：
 
 - 不同记录标签表型的首次处方药味结构；
@@ -18,9 +31,9 @@ MingYiRx 是一个本地运行、默认隐私安全的名老中医纵向处方�
 
 它不分析疗效、安全性、处方合理性、机制或诊断性能。
 
-当前版本为 `0.14.1`：除既有纵向、组合和网络分析外，支持严格主队列之外的精确单病种/合并病临床表型、性别与首诊年龄分层、合并病与相应单病种的患者等权加减差，以及患者—年度处方构成和加减演变。年度页面使用折线图展示所选药味的年度覆盖率或患者等权加减频率，未公开年份断线且不补零。首诊、加味、减味、合并病对照和年度页面显示患者等权的最常记录克数、该值的患者数和占比；组内并列最高频值会全部标注。只接受明确记录为 `g` 的数值，单独执行公开门槛，不换算、不插补，也不输出推荐剂量。
+当前开源版本为 `0.16.0`：除既有纵向、组合和网络分析外，支持严格主队列之外的精确单病种/合并病临床表型、性别与首诊年龄分层、合并病与相应单病种的患者等权加减差，以及患者—年度处方构成和加减演变。年度页面使用折线图展示所选药味的年度覆盖率或患者等权加减频率，未公开年份断线且不补零。首诊、加味、减味、合并病对照和年度页面显示患者等权的最常记录克数、该值的患者数和占比；组内并列最高频值会全部标注。只接受明确记录为 `g` 的数值，单独执行公开门槛，不换算、不插补，也不输出推荐剂量。
 
-公开聚合结果可在 [MingYiRx 临床处方复盘](https://mingyirx-clinical-review.betzoqrcr9gfgp.chatgpt.site) 查看。该页面不含原始数据或患者级记录，仅用于回顾性研究探索，不能作为个体化处方、剂量或疗效判断依据。
+本仓库以 MIT 许可证发布通用代码与合成示例，不附带患者数据或当前临床研究网页。历史网页演示不代表最新软件版本。
 
 ## 为什么不是直接整理原论文脚本
 
@@ -175,3 +188,69 @@ dose, unit, physician_id, sex, birth_date
 可以提交：代码、配置模板、合成数据、测试、分析契约和非敏感文档。
 
 禁止提交：真实临床CSV/Excel、患者或就诊键、HMAC密钥、患者级中间表、精确日期、包含低频单元格的结果、伦理文件原件和任何凭据。
+
+## Local research workbench 0.15.0
+
+The local dashboard now supports single-item comparisons across the current public
+stratum, separately selected strict-cohort matched analyses and co-occurrence
+neighborhoods, quality and version review, and CSV/JSON export. See
+[the implementation contract](docs/dashboard-research-0.15.0.md). Source artifact
+hashes are checked when a run manifest is available; missing provenance is explicit.
+The new local version has not been deployed to the public site.
+
+The local 0.15.1 dashboard also exports standalone annual and primary-network SVGs,
+including public provenance and interpretation context. This version remains local.
+## Fixed-margin network background
+
+`python scripts/run_network_null.py --baseline outputs/tao_user_final_b_20260909 --output outputs/network-null-new --thin-sweeps 10`
+
+This optional secondary analysis preserves prescription sizes and item frequencies,
+tests the complete primary-node pair family before disclosure, and emits separate
+Monte Carlo diagnostics. It does not replace the descriptive graph. Read
+[the analysis contract](docs/network-null-20260909.md) before interpreting the
+exploratory p/q values. Output directories must be new; real inputs remain local.
+
+## Terminology review commands
+
+Prepare a pending vocabulary ledger from hash-verified public aggregates, then
+compile only explicitly approved entries using the existing dictionary loader:
+
+```powershell
+python -m mingyirx dictionary-prepare --input-dir outputs/tao_preflight --output outputs/terminology-review
+python -m mingyirx dictionary-compile --review outputs/terminology-review/terminology_review.csv --version reviewed-v1 --output outputs/reviewed-dictionary
+```
+
+The second command refuses an entirely pending ledger. Neither command applies a
+dictionary or overwrites an existing output directory. The draft covers disclosed
+first-prescription vocabulary only. See [the terminology contract](docs/terminology-review.md)
+for review metadata, merge constraints and required baseline comparisons.
+
+
+## Public release and installation
+
+Version 0.16.0 is licensed under [MIT](LICENSE). Python 3.11 or newer is required.
+The core has no third-party runtime dependencies. Install with `pip install .`;
+workbook import additionally requires `pip install ".[excel]"`.
+
+```sh
+python -m mingyirx validate --config configs/example.json --input data/synthetic/prescriptions.csv
+python -m mingyirx run --config configs/example.json --input data/synthetic/prescriptions.csv --output outputs/demo
+python -m mingyirx dashboard --input-dir outputs/demo --output outputs/demo.html
+python -m unittest discover -s tests -v
+```
+
+The included fixture is synthetic, not patient data. To compare two reviewed
+aggregate exports in one interface without merging patients:
+
+```sh
+python -m mingyirx dashboard-sources --primary outputs/first.html --supplement outputs/second.html --output outputs/sources.html
+```
+
+All dynamic panels switch together. This is source selection, not patient linkage
+or statistical pooling. The legacy `inpatient_import` module name does not establish
+an inpatient setting: callers must provide a verified input hash and explicit
+source metadata. Context loaders use a private `work/source_contexts.json` manifest
+or an explicitly supplied path; no personal-machine path is required by the library.
+
+See [CHANGELOG.md](CHANGELOG.md) and [SECURITY.md](SECURITY.md). The license covers
+software, not clinical records, third-party articles, or private study outputs.

@@ -6,8 +6,10 @@ from pathlib import Path
 
 from .config import ConfigError
 from .dashboard import DashboardError, build_dashboard
+from .dashboard_sources import build_source_dashboard
 from .io import InputError
 from .pipeline import run_pipeline, validate_pipeline
+from .terminology import TerminologyError, compile_dictionary, prepare_dictionary
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -35,7 +37,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     dashboard.add_argument("--input-dir", type=Path, required=True)
     dashboard.add_argument("--output", type=Path, required=True)
-    dashboard.add_argument("--title", default="MingYiRx 门诊处方复盘")
+    dashboard.add_argument("--title", default="MingYiRx 处方记录复盘")
+    sources = subparsers.add_parser("dashboard-sources", help="Switch two reviewed dashboards without merging patients")
+    sources.add_argument("--primary", type=Path, required=True)
+    sources.add_argument("--supplement", type=Path, required=True)
+    sources.add_argument("--output", type=Path, required=True)
+    prepare = subparsers.add_parser("dictionary-prepare", help="Prepare a public vocabulary review ledger")
+    prepare.add_argument("--input-dir", type=Path, required=True)
+    prepare.add_argument("--output", type=Path, required=True)
+    compile_review = subparsers.add_parser("dictionary-compile", help="Compile explicitly approved terminology")
+    compile_review.add_argument("--review", type=Path, required=True)
+    compile_review.add_argument("--version", required=True)
+    compile_review.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -59,12 +72,21 @@ def main() -> int:
             }
         elif args.command == "run":
             summary = run_pipeline(args.config, args.input, args.output)
+        elif args.command == "dictionary-prepare":
+            summary = prepare_dictionary(args.input_dir, args.output)
+        elif args.command == "dictionary-compile":
+            summary = compile_dictionary(args.review, args.version, args.output)
+        elif args.command == "dashboard-sources":
+            summary = build_source_dashboard(args.primary, args.supplement, args.output)
         else:
             summary = build_dashboard(args.input_dir, args.output, args.title)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
-    except (ConfigError, DashboardError, InputError, json.JSONDecodeError) as error:
+    except (ConfigError, DashboardError, InputError, TerminologyError, json.JSONDecodeError) as error:
         print(json.dumps({"gate": "BLOCK", "error": str(error)}, ensure_ascii=False, indent=2))
+        return 2
+    except (OSError, UnicodeError):
+        print(json.dumps({"gate": "BLOCK", "error": "File access or text decoding failed; input details withheld"}))
         return 2
 
 

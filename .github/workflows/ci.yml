@@ -51,3 +51,13 @@ jobs:
           python -m mingyirx dashboard
           --input-dir "${RUNNER_TEMP}/mingyirx-demo"
           --output "${RUNNER_TEMP}/mingyirx-clinical-review.html"
+
+      - name: Check dashboard interactions
+        run: node tests/dashboard_ui_checks.mjs "${RUNNER_TEMP}/mingyirx-clinical-review.html"
+
+      - name: Build separate-source synthetic dashboard
+        run: >-
+          python -m mingyirx dashboard-sources
+          --primary "${RUNNER_TEMP}/mingyirx-clinical-review.html"
+          --supplement "${RUNNER_TEMP}/mingyirx-clinical-review.html"
+          --output "${RUNNER_TEMP}/mingyirx-sources.html"

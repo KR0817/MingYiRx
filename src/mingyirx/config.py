@@ -347,7 +347,9 @@ def load_config(path: Path) -> AnalysisConfig:
         raise ConfigError("Version 0.1 supports exclusive_groups=true only")
 
     min_public_n = int(raw.get("min_public_n", 10))
-    synthetic_mode = bool(raw.get("synthetic_mode", False))
+    synthetic_mode = raw.get("synthetic_mode", False)
+    if not isinstance(synthetic_mode, bool):
+        raise ConfigError("synthetic_mode must be a JSON boolean")
     if min_public_n < 1:
         raise ConfigError("min_public_n must be positive")
     if min_public_n < 10 and not synthetic_mode:

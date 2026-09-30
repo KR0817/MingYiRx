@@ -1,5 +1,34 @@
 # Technical Specification: MingYiRx
 
+## 2026-09-08 dashboard continuation contract
+
+The next local dashboard revision fixes inconsistent medication filtering and
+preserves the selected medication when switching annual metrics. Scientific
+tables, cohort definitions, suppression thresholds, and the production website
+are outside this revision's mutation scope.
+
+Acceptance criteria:
+
+- Medication search filters the first-prescription trajectory, additions,
+  removals, item lists, combinations, and comparisons consistently. A visible
+  scope/status label distinguishes these results from the independent annual
+  selector and historical-reference form. Clearing search restores the view.
+- Annual metric changes preserve the selected medication. If that medication
+  has no public rows for the new metric, keep the controls visible and show an
+  explicit unavailable state; do not silently substitute another medication.
+- CSV ingestion projects only explicitly declared dashboard fields, rejects
+  known direct-identifier headers, duplicate headers, and malformed row widths,
+  and never echoes source cell values in errors. This validates structure, not
+  clinical de-identification or the adequacy of statistical suppression.
+- Synthetic regression tests reproduce failures before fixes. Verification
+  includes Python tests, generated JavaScript execution/syntax, aggregate hash
+  preservation, deterministic dashboard builds, and desktop/mobile browser
+  checks when the browser runtime is available.
+
+Implementation tasks: harden the shared CSV reader; fix search/annual state;
+add regression coverage; build a separate local review artifact and record
+checks. Reuse standard-library Python and the existing self-contained HTML.
+
 ## Architecture
 
 MingYiRx is a local Python CLI with a small functional core:
@@ -243,3 +272,31 @@ All outputs are aggregate. Empty analyses still emit headers and an explanatory 
 - `python -m unittest discover -s tests -v` is the baseline check.
 - Repository CI compiles the Python sources, runs the full synthetic test suite, and executes `validate` and `run` against committed synthetic inputs only. Optional plotting and every real/private path remain outside CI.
 - `docs/data-to-paper-workflow.md` is the handoff contract linking each manuscript claim class to aggregate outputs, implementation sources, validation evidence, and prohibited interpretations.
+
+## Local research workbench 0.15.0
+
+The implementation contract and acceptance checks are recorded in
+`docs/dashboard-research-0.15.0.md`. The dashboard adds a single-item comparison,
+independently scoped strict-cohort research, primary-network neighborhoods, quality
+summaries, allowlisted run identity, and local CSV/JSON export. All added inputs are
+existing public aggregates. An artifact hash mismatch or a blocked source manifest
+refuses dashboard generation. No additional analysis or clinical claims are inferred.
+
+## Standalone figures 0.15.1
+
+Annual and primary-network SVG downloads reuse the rendered geometry, embed canonical
+styles and public provenance, and show scope/denominator/version text. Empty chart
+states disable export. See `docs/dashboard-figure-export-0.15.1.md` for acceptance.
+
+## Combination folding 0.15.2
+
+Equal-support subset pairs may be folded under one disclosed stable triplet within
+the same cohort and stratum, with exact denominator equality and reversible native
+details. Source statistics remain unchanged. See `docs/combination-folding-0.15.2.md`.
+# Dashboard 0.15.3
+
+Medication selectors share a disclosed all-visit usage ordering. A separate
+aggregate bundle preserves existing outputs and adds patient-thresholded visit-item
+counts. The network neighborhood uses annotated, non-overlapping SVG cards and
+retains the existing top-cosine edge selection and source values. Contract and
+acceptance checks: `docs/dashboard-frequency-network-0.15.3.md`.
